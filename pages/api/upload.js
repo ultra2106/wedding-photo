@@ -1,90 +1,104 @@
 import { google } from 'googleapis'
 import { Readable } from 'stream'
 
-// 卓ごとのGoogleドライブフォルダID（後で設定します）
-const FOLDER_IDS = {
-  table1:     process.env.FOLDER_TABLE1,
-  table2:     process.env.FOLDER_TABLE2,
-  table3:     process.env.FOLDER_TABLE3,
-  table4:     process.env.FOLDER_TABLE4,
-  afterparty: process.env.FOLDER_AFTERPARTY,
-  public:     process.env.FOLDER_PUBLIC,
-}
-
-// Googleドライブに接続する関数
-function getDriveClient() {
-  const auth = new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET
-  )
-  auth.setCredentials({
-    refresh_token: process.env.GOOGLE_REFRESH_TOKEN
+function getServiceClient() {
+  const auth = new google.auth.GoogleAuth({
+    credentials: {
+      client_email: process.env.GOOGLE_SERVICE_EMAIL,
+      private_key: process.env.GOOGLE_SERVICE_KEY?.replace(/\\n/g, '\n'),
+    },
+    scopes: [
+      'https://www.googleapis.com/auth/drive.file',
+      'https://www.googleapis.com/auth/drive',
+    ],
   })
-  return google.drive({ version: 'v3', auth })
+  return auth
 }
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end()
 
   try {
-    const { fileName, fileData, mimeType, group, caption, visibility, nick } = req.body
+    const { eventId, fileName, fileData, mimeType, group, caption, visibility, nick } = req.body
 
-    const drive = getDriveClient()
+    // サービスアカウントでドライブに接続
+    const auth = getServiceClient()
+    const drive = google.drive({ version: 'v3', auth })
 
-    // 保存先フォルダを決定（公開範囲に応じて振り分け）
-    const folderId = visibility === 'public'
-      ? FOLDER_IDS.public
-      : FOLDER_IDS[group]
+    // スプレッドシートからイベントのフォルダIDを取得
+    const sheets = google.sheets({ version: 'v4', auth })
+    const sheetRes = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.SPREADSHEET_ID,
+      range: 'Events!A2:F',
+    })
 
-    if (!folderId) {
-      return res.status(400).json({ error: 'フォルダIDが設定されていません' })
+    const rows = sheetRes.data.values || []
+    const eventRow = rows.find(row => row[1] === eventId)
+
+    if (!eventRow) {
+      return res.status(404).json({ error: 'イベントが見つかりません' })
     }
 
-    // Base64 → バイナリに変換
+    const rootFolderId = eventRow[5]
+
+    // 保存先フォルダ名を決定
+    let folderKeyword = ''
+    if (visibility === 'public') {
+      folderKeyword = '全体公開'
+    } else if (group === 'afterparty') {
+      folderKeyword = '二次会'
+    } else if (group === 'host') {
+      folderKeyword = '主催者'
+    } else {
+      const tableNum = group.replace('table', '')
+      folderKeyword = `${tableNum}卓`
+    }
+
+    // サブフォルダを検索
+    const folderSearch = await drive.files.list({
+      q: `'${rootFolderId}' in parents and name contains '${folderKeyword}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+      fields: 'files(id, name)',
+    })
+
+    let folderId = rootFolderId
+    if (folderSearch.data.files?.length > 0) {
+      folderId = folderSearch.data.files[0].id
+    }
+
+    // Base64 → バイナリに変換してアップロード
     const buffer = Buffer.from(fileData, 'base64')
     const stream = Readable.from(buffer)
 
-    // Googleドライブに保存
     const response = await drive.files.create({
       requestBody: {
-        name: fileName,
+        name: `${Date.now()}_${fileName}`,
         parents: [folderId],
         appProperties: {
-          caption:    caption || '',
+          caption: caption || '',
           visibility: visibility || 'public',
-          nick:       nick || '',
-          group:      group || '',
+          nick: nick || '',
+          group: group || '',
+          eventId: eventId || '',
         }
       },
-      media: {
-        mimeType,
-        body: stream,
-      },
+      media: { mimeType, body: stream },
       fields: 'id, name, thumbnailLink, webContentLink'
     })
 
-    // 全員が見られるように共有設定
+    // 誰でも見られるように共有設定
     await drive.permissions.create({
       fileId: response.data.id,
-      requestBody: {
-        role: 'reader',
-        type: 'anyone',
-      }
+      requestBody: { role: 'reader', type: 'anyone' }
     })
 
     res.json({ success: true, file: response.data })
 
   } catch (error) {
     console.error('Upload error:', error)
-    res.status(500).json({ error: 'アップロードに失敗しました' })
+    res.status(500).json({ error: 'アップロードに失敗しました', detail: error.message })
   }
 }
 
-// 大きいファイルも受け付けるように設定
 export const config = {
-  api: {
-    bodyParser: {
-      sizeLimit: '10mb'
-    }
-  }
+  api: { bodyParser: { sizeLimit: '10mb' } }
 }
