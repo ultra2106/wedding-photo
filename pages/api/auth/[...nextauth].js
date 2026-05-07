@@ -1,14 +1,13 @@
 import NextAuth from 'next-auth'
 import GoogleProvider from 'next-auth/providers/google'
 
-export default NextAuth({
+export const authOptions = {
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
       authorization: {
         params: {
-          // 主催者のドライブにアクセスするための権限
           scope: [
             'openid',
             'email',
@@ -16,15 +15,14 @@ export default NextAuth({
             'https://www.googleapis.com/auth/drive.file',
             'https://www.googleapis.com/auth/spreadsheets',
           ].join(' '),
-          access_type: 'offline',  // リフレッシュトークンを取得
-          prompt: 'consent',       // 毎回同意画面を表示（リフレッシュトークン取得のため）
+          access_type: 'offline',
+          prompt: 'consent',
         }
       }
     })
   ],
   secret: process.env.NEXTAUTH_SECRET,
   callbacks: {
-    // ログイン時にアクセストークンをセッションに保存
     async jwt({ token, account }) {
       if (account) {
         token.accessToken = account.access_token
@@ -39,6 +37,8 @@ export default NextAuth({
     }
   },
   pages: {
-    signIn: '/',  // ログインページはトップページ
+    signIn: '/',
   }
-})
+}
+
+export default NextAuth(authOptions)
