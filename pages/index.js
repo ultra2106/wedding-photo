@@ -6,7 +6,6 @@ export default function Home() {
   const { data: session, status } = useSession()
   const router = useRouter()
 
-  // ログイン済みならダッシュボードへ
   useEffect(() => {
     if (session) router.push('/dashboard')
   }, [session])
@@ -28,7 +27,6 @@ export default function Home() {
         <h1 style={{ margin: '0 0 4px', color: '#c2185b', fontSize: 26 }}>Wedding Photo</h1>
         <p style={{ color: '#aaa', fontSize: 14, margin: '0 0 32px' }}>結婚式の思い出を卓ごとに共有</p>
 
-        {/* 特徴 */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 32, textAlign: 'left' }}>
           {[
             { icon: '📱', text: 'QRコードをスキャンするだけで参加' },
@@ -43,7 +41,6 @@ export default function Home() {
           ))}
         </div>
 
-        {/* 主催者ログインボタン */}
         <button
           onClick={() => signIn('google', { callbackUrl: '/dashboard' })}
           style={{ width: '100%', padding: '14px', borderRadius: 12, border: '1.5px solid #ddd', background: 'white', fontSize: 15, fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 12 }}>
@@ -57,7 +54,7 @@ export default function Home() {
         </button>
 
         <p style={{ color: '#bbb', fontSize: 12, margin: 0 }}>
-          ゲストはQRコードをスキャンするだけでOK！<br />Googleアカウント不要です。
+          ゲストはQRコードをスキャンするだけ！<br />Googleアカウント不要です。
         </p>
       </div>
     </div>
