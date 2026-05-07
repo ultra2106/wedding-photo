@@ -1,53 +1,64 @@
+import { signIn, useSession } from 'next-auth/react'
 import { useRouter } from 'next/router'
-import { useState } from 'react'
+import { useEffect } from 'react'
 
-const GROUPS = [
-  { id: 'table1', name: '🌸 1卓' },
-  { id: 'table2', name: '🌿 2卓' },
-  { id: 'table3', name: '🌟 3卓' },
-  { id: 'table4', name: '💫 4卓' },
-  { id: 'afterparty', name: '🎉 二次会' },
-]
-
-export default function Login() {
+export default function Home() {
+  const { data: session, status } = useSession()
   const router = useRouter()
-  const { table } = router.query
-  const [nick, setNick] = useState('')
-  const [selTable, setSelTable] = useState(table || 'table1')
-  const [isHost, setIsHost] = useState(false)
 
-  const login = () => {
-    if (!nick.trim()) return
-    sessionStorage.setItem('user', JSON.stringify({
-      nick, isHost, table: isHost ? null : selTable
-    }))
-    router.push('/album')
-  }
+  // ログイン済みならダッシュボードへ
+  useEffect(() => {
+    if (session) router.push('/dashboard')
+  }, [session])
+
+  if (status === 'loading') return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'sans-serif' }}>
+      <div style={{ textAlign: 'center', color: '#aaa' }}>
+        <div style={{ fontSize: 40 }}>💍</div>
+        <div style={{ marginTop: 8 }}>読み込み中...</div>
+      </div>
+    </div>
+  )
 
   return (
-    <div style={{ minHeight:'100vh', background:'linear-gradient(160deg,#fff0f6,#f3e8ff)', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'sans-serif' }}>
-      <div style={{ background:'white', borderRadius:24, padding:32, width:'100%', maxWidth:380, boxShadow:'0 8px 40px rgba(233,30,140,0.12)' }}>
-        <div style={{ textAlign:'center', marginBottom:24 }}>
-          <div style={{ fontSize:52 }}>💍</div>
-          <h2 style={{ margin:'8px 0 2px', color:'#c2185b' }}>Wedding Photo</h2>
-          <p style={{ color:'#aaa', fontSize:13, margin:0 }}>ニックネームを入力してください</p>
+    <div style={{ minHeight: '100vh', background: 'linear-gradient(160deg,#fff0f6,#f3e8ff)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'sans-serif', padding: 20 }}>
+      <div style={{ background: 'white', borderRadius: 24, padding: 36, width: '100%', maxWidth: 400, boxShadow: '0 8px 40px rgba(233,30,140,0.12)', textAlign: 'center' }}>
+
+        <div style={{ fontSize: 56, marginBottom: 12 }}>💍</div>
+        <h1 style={{ margin: '0 0 4px', color: '#c2185b', fontSize: 26 }}>Wedding Photo</h1>
+        <p style={{ color: '#aaa', fontSize: 14, margin: '0 0 32px' }}>結婚式の思い出を卓ごとに共有</p>
+
+        {/* 特徴 */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 32, textAlign: 'left' }}>
+          {[
+            { icon: '📱', text: 'QRコードをスキャンするだけで参加' },
+            { icon: '🌸', text: '卓ごとにアルバムを自動整理' },
+            { icon: '☁️', text: '写真はあなたのGoogleドライブに保存' },
+            { icon: '🔒', text: '卓限定・全体公開を選べる' },
+          ].map((f, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: '#faf4ff', borderRadius: 12 }}>
+              <span style={{ fontSize: 20 }}>{f.icon}</span>
+              <span style={{ fontSize: 14, color: '#555' }}>{f.text}</span>
+            </div>
+          ))}
         </div>
-        <input placeholder="ニックネーム" value={nick} onChange={e=>setNick(e.target.value)}
-          style={{ width:'100%', padding:'13px 14px', borderRadius:12, border:'1.5px solid #eee', fontSize:16, boxSizing:'border-box', marginBottom:10, outline:'none' }}/>
-        <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:14, marginBottom:10, cursor:'pointer' }}>
-          <input type="checkbox" checked={isHost} onChange={e=>setIsHost(e.target.checked)}/>
-          👑 主催者としてログイン
-        </label>
-        {!isHost && (
-          <select value={selTable} onChange={e=>setSelTable(e.target.value)}
-            style={{ width:'100%', padding:'13px 14px', borderRadius:12, border:'1.5px solid #eee', fontSize:15, boxSizing:'border-box', marginBottom:12, background:'white' }}>
-            {GROUPS.map(g=><option key={g.id} value={g.id}>{g.name}</option>)}
-          </select>
-        )}
-        <button onClick={login} disabled={!nick.trim()}
-          style={{ width:'100%', padding:14, borderRadius:12, border:'none', background:nick.trim()?'linear-gradient(90deg,#e91e8c,#9c27b0)':'#ddd', color:'white', fontWeight:'bold', fontSize:16, cursor:'pointer' }}>
-          入場する 🎊
+
+        {/* 主催者ログインボタン */}
+        <button
+          onClick={() => signIn('google', { callbackUrl: '/dashboard' })}
+          style={{ width: '100%', padding: '14px', borderRadius: 12, border: '1.5px solid #ddd', background: 'white', fontSize: 15, fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 12 }}>
+          <svg width="20" height="20" viewBox="0 0 48 48">
+            <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.2l6.7-6.7C35.7 2.5 30.2 0 24 0 14.8 0 6.9 5.4 3 13.3l7.8 6C12.8 13.3 17.9 9.5 24 9.5z"/>
+            <path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.5 5.8c4.4-4.1 6.9-10.1 7.1-17.5z"/>
+            <path fill="#FBBC05" d="M10.8 28.7A14.5 14.5 0 0 1 9.5 24c0-1.6.3-3.2.8-4.7L2.5 13.3A24 24 0 0 0 0 24c0 3.8.9 7.4 2.5 10.7l8.3-6z"/>
+            <path fill="#34A853" d="M24 48c6.2 0 11.4-2 15.2-5.5l-7.5-5.8c-2 1.4-4.6 2.2-7.7 2.2-6.1 0-11.2-3.8-13.2-9.2l-7.8 6C6.9 42.6 14.8 48 24 48z"/>
+          </svg>
+          主催者としてGoogleログイン
         </button>
+
+        <p style={{ color: '#bbb', fontSize: 12, margin: 0 }}>
+          ゲストはQRコードをスキャンするだけでOK！<br />Googleアカウント不要です。
+        </p>
       </div>
     </div>
   )
