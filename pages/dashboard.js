@@ -6,14 +6,14 @@ export default function Dashboard() {
   const { data: session, status } = useSession()
   const router = useRouter()
   const [events, setEvents] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const [creating, setCreating] = useState(false)
   const [newEvent, setNewEvent] = useState({ name: '', date: '', tables: 4 })
 
   useEffect(() => {
     if (status === 'unauthenticated') router.push('/')
-    if (session) fetchEvents()
-  }, [session, status])
+    if (status === 'authenticated') fetchEvents()
+  }, [status])
 
   const fetchEvents = async () => {
     setLoading(true)
@@ -40,7 +40,6 @@ export default function Dashboard() {
       if (data.success) {
         setEvents(prev => [data.event, ...prev])
         setNewEvent({ name: '', date: '', tables: 4 })
-        setCreating(false)
       }
     } catch (e) {
       alert('作成に失敗しました')
@@ -48,6 +47,7 @@ export default function Dashboard() {
     setCreating(false)
   }
 
+  // ローディング中
   if (status === 'loading') return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'sans-serif' }}>
       <div style={{ textAlign: 'center', color: '#aaa' }}>
@@ -56,6 +56,9 @@ export default function Dashboard() {
       </div>
     </div>
   )
+
+  // 未ログイン
+  if (status === 'unauthenticated') return null
 
   return (
     <div style={{ minHeight: '100vh', background: '#f5f5f5', fontFamily: 'sans-serif', paddingBottom: 40 }}>
