@@ -2,34 +2,27 @@ export const dynamic = 'force-dynamic'
 
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/router'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
+import QRCode from 'qrcode'
 
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://wedding-photo-gamma.vercel.app'
 
-// シンプルなQRコード（SVGベース）
-function QRSvg({ value, size = 120, color = '#1a1a1a' }) {
-  const N = 21, cell = size / N
-  const seed = value.split('').reduce((a, c, i) => a ^ (c.charCodeAt(0) * (i + 7)), 0)
-  const isFinder = (r, c, or, oc) => {
-    const dr = r - or, dc = c - oc
-    if (dr < 0 || dr > 6 || dc < 0 || dc > 6) return false
-    return dr === 0 || dr === 6 || dc === 0 || dc === 6 || (dr >= 2 && dr <= 4 && dc >= 2 && dc <= 4)
-  }
-  const pat = Array.from({ length: N }, (_, r) =>
-    Array.from({ length: N }, (_, c) => {
-      if (isFinder(r, c, 0, 0) || isFinder(r, c, 0, N - 7) || isFinder(r, c, N - 7, 0)) return true
-      return ((seed * (r + 1) * (c + 3) * 31 + r * 17 + c * 13) & 0xff) % 3 === 0
+function QRCanvas({ value, color = '#1a1a1a' }) {
+  const canvasRef = useRef()
+
+  useEffect(() => {
+    if (!canvasRef.current || !value) return
+    QRCode.toCanvas(canvasRef.current, value, {
+      width: 120,
+      margin: 1,
+      color: {
+        dark: color,
+        light: '#ffffff',
+      }
     })
-  )
-  return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ borderRadius: 8, display: 'block' }}>
-      <rect width={size} height={size} fill="white" />
-      {pat.map((row, r) => row.map((on, c) => on
-        ? <rect key={`${r}-${c}`} x={c * cell} y={r * cell} width={cell} height={cell} fill={color} />
-        : null
-      ))}
-    </svg>
-  )
+  }, [value, color])
+
+  return <canvas ref={canvasRef} style={{ borderRadius: 8, display: 'block' }} />
 }
 
 export default function QRPage() {
@@ -71,6 +64,15 @@ export default function QRPage() {
     setTimeout(() => setCopied(null), 2000)
   }
 
+  const downloadQR = (tableId, tableName) => {
+    const canvas = document.querySelector(`#qr-${tableId}`)
+    if (!canvas) return
+    const link = document.createElement('a')
+    link.download = `QR_${tableName}.png`
+    link.href = canvas.toDataURL()
+    link.click()
+  }
+
   if (status === 'loading' || !event) return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'sans-serif' }}>
       <div style={{ textAlign: 'center', color: '#aaa' }}>
@@ -105,20 +107,26 @@ export default function QRPage() {
               <div key={t.id} style={{ background: 'white', borderRadius: 16, padding: 16, textAlign: 'center', boxShadow: '0 2px 12px rgba(0,0,0,0.07)', border: `2px solid ${t.color}22` }}>
                 <div style={{ fontWeight: 'bold', fontSize: 14, color: t.color, marginBottom: 10 }}>{t.name}</div>
                 <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 8 }}>
-                  <QRSvg value={url} size={100} color={t.color} />
+                  <QRCanvas value={url} color={t.color} />
                 </div>
                 <div style={{ fontSize: 9, color: '#ccc', wordBreak: 'break-all', marginBottom: 8 }}>{url}</div>
-                <button onClick={() => copyUrl(t.id)}
-                  style={{ width: '100%', padding: '6px', borderRadius: 8, border: `1px solid ${t.color}`, background: copied === t.id ? t.color : 'white', color: copied === t.id ? 'white' : t.color, fontSize: 12, cursor: 'pointer', fontWeight: 'bold' }}>
-                  {copied === t.id ? '✅ コピー済み' : '🔗 URLコピー'}
-                </button>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button onClick={() => copyUrl(t.id)}
+                    style={{ flex: 1, padding: '6px', borderRadius: 8, border: `1px solid ${t.color}`, background: copied === t.id ? t.color : 'white', color: copied === t.id ? 'white' : t.color, fontSize: 11, cursor: 'pointer', fontWeight: 'bold' }}>
+                    {copied === t.id ? '✅ コピー' : '🔗 URL'}
+                  </button>
+                  <button onClick={() => downloadQR(t.id, t.name)}
+                    style={{ flex: 1, padding: '6px', borderRadius: 8, border: `1px solid ${t.color}`, background: 'white', color: t.color, fontSize: 11, cursor: 'pointer', fontWeight: 'bold' }}>
+                    ⬇️ 保存
+                  </button>
+                </div>
               </div>
             )
           })}
         </div>
 
         <div style={{ background: '#fff8e1', borderRadius: 12, padding: 12, marginTop: 16, fontSize: 12, color: '#795548' }}>
-          💡 QRコードは印刷してA6サイズで各卓に置くと便利です
+          💡 「保存」ボタンでQRコード画像をダウンロードできます。印刷してA6サイズで各卓に置くと便利です！
         </div>
       </div>
     </div>
