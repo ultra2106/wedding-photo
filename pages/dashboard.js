@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import { useSession, signOut } from 'next-auth/react'
 import { useRouter } from 'next/router'
 import { useState, useEffect } from 'react'
@@ -47,7 +49,6 @@ export default function Dashboard() {
     setCreating(false)
   }
 
-  // ローディング中
   if (status === 'loading') return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'sans-serif' }}>
       <div style={{ textAlign: 'center', color: '#aaa' }}>
@@ -57,13 +58,11 @@ export default function Dashboard() {
     </div>
   )
 
-  // 未ログイン
   if (status === 'unauthenticated') return null
 
   return (
     <div style={{ minHeight: '100vh', background: '#f5f5f5', fontFamily: 'sans-serif', paddingBottom: 40 }}>
 
-      {/* Header */}
       <div style={{ background: 'linear-gradient(90deg,#e91e8c,#9c27b0)', color: 'white', padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <div style={{ fontWeight: 'bold', fontSize: 18 }}>💍 Wedding Photo</div>
@@ -77,7 +76,6 @@ export default function Dashboard() {
 
       <div style={{ padding: 16, maxWidth: 600, margin: '0 auto' }}>
 
-        {/* 新規イベント作成 */}
         <div style={{ background: 'white', borderRadius: 20, padding: 20, marginBottom: 16, boxShadow: '0 2px 12px rgba(0,0,0,0.07)' }}>
           <h3 style={{ margin: '0 0 16px', fontSize: 16, color: '#333' }}>🎊 新しい結婚式を作成</h3>
           <input
@@ -107,7 +105,6 @@ export default function Dashboard() {
           </button>
         </div>
 
-        {/* イベント一覧 */}
         <h3 style={{ margin: '0 0 12px', fontSize: 15, color: '#555' }}>📋 作成済みのイベント</h3>
         {loading ? (
           <div style={{ textAlign: 'center', padding: 32, color: '#ccc' }}>読み込み中...</div>
