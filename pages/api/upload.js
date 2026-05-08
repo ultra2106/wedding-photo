@@ -1,5 +1,18 @@
 import { google } from 'googleapis'
 import { Readable } from 'stream'
+import crypto from 'crypto'
+
+// トークンを復号化
+function decrypt(text) {
+  const secret = process.env.NEXTAUTH_SECRET.padEnd(32, '0').slice(0, 32)
+  const [ivHex, encryptedHex] = text.split(':')
+  const iv = Buffer.from(ivHex, 'hex')
+  const encrypted = Buffer.from(encryptedHex, 'hex')
+  const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(secret), iv)
+  let decrypted = decipher.update(encrypted)
+  decrypted = Buffer.concat([decrypted, decipher.final()])
+  return decrypted.toString()
+}
 
 function getServiceClient() {
   const auth = new google.auth.GoogleAuth({
@@ -7,12 +20,22 @@ function getServiceClient() {
       client_email: process.env.GOOGLE_SERVICE_EMAIL,
       private_key: process.env.GOOGLE_SERVICE_KEY?.replace(/\\n/g, '\n'),
     },
-    scopes: [
-      'https://www.googleapis.com/auth/drive.file',
-      'https://www.googleapis.com/auth/drive',
-    ],
+    scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
   })
   return auth
+}
+
+// リフレッシュトークンから新しいアクセストークンを発行
+async function getDriveClientFromRefreshToken(encryptedRefreshToken) {
+  const refreshToken = decrypt(encryptedRefreshToken)
+  const auth = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET
+  )
+  auth.setCredentials({ refresh_token: refreshToken })
+  // アクセストークンを自動更新
+  await auth.getAccessToken()
+  return google.drive({ version: 'v3', auth })
 }
 
 export default async function handler(req, res) {
@@ -21,15 +44,13 @@ export default async function handler(req, res) {
   try {
     const { eventId, fileName, fileData, mimeType, group, caption, visibility, nick } = req.body
 
-    // サービスアカウントでドライブに接続
-    const auth = getServiceClient()
-    const drive = google.drive({ version: 'v3', auth })
+    // スプレッドシートからイベント情報を取得
+    const serviceAuth = getServiceClient()
+    const sheets = google.sheets({ version: 'v4', auth: serviceAuth })
 
-    // スプレッドシートからイベントのフォルダIDを取得
-    const sheets = google.sheets({ version: 'v4', auth })
     const sheetRes = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.SPREADSHEET_ID,
-      range: 'Events!A2:F',
+      range: 'Events!A2:G',
     })
 
     const rows = sheetRes.data.values || []
@@ -40,15 +61,23 @@ export default async function handler(req, res) {
     }
 
     const rootFolderId = eventRow[5]
+    const encryptedRefreshToken = eventRow[6]
 
-    // 保存先フォルダ名を決定
+    if (!encryptedRefreshToken) {
+      return res.status(400).json({ error: 'トークンが見つかりません。主催者に再ログインを依頼してください。' })
+    }
+
+    // 主催者のリフレッシュトークンでドライブクライアントを作成
+    const drive = await getDriveClientFromRefreshToken(encryptedRefreshToken)
+
+    // 保存先フォルダを決定
     let folderKeyword = ''
     if (visibility === 'public') {
       folderKeyword = '全体公開'
     } else if (group === 'afterparty') {
       folderKeyword = '二次会'
     } else if (group === 'host') {
-      folderKeyword = '主催者'
+      folderKeyword = '主催者のみ'
     } else {
       const tableNum = group.replace('table', '')
       folderKeyword = `${tableNum}卓`
@@ -74,15 +103,15 @@ export default async function handler(req, res) {
         name: `${Date.now()}_${fileName}`,
         parents: [folderId],
         appProperties: {
-          caption: caption || '',
+          caption:    caption || '',
           visibility: visibility || 'public',
-          nick: nick || '',
-          group: group || '',
-          eventId: eventId || '',
+          nick:       nick || '',
+          group:      group || '',
+          eventId:    eventId || '',
         }
       },
       media: { mimeType, body: stream },
-      fields: 'id, name, thumbnailLink, webContentLink'
+      fields: 'id, name, thumbnailLink'
     })
 
     // 誰でも見られるように共有設定
