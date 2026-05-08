@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic'
 
 import { useRouter } from 'next/router'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 
 const VIS_BADGE = {
   public: { label: '🌐 全員', bg: '#e8f5e9', color: '#2e7d32' },
@@ -20,6 +20,7 @@ export default function GuestPage() {
   const [comments, setComments] = useState([])
   const [activeTab, setActiveTab] = useState('photos')
   const [lightbox, setLightbox] = useState(null)
+  const [lightboxIndex, setLightboxIndex] = useState(0)
   const [uploadOpen, setUploadOpen] = useState(false)
   const [newCap, setNewCap] = useState('')
   const [newVis, setNewVis] = useState('public')
@@ -27,18 +28,25 @@ export default function GuestPage() {
   const [uploading, setUploading] = useState(false)
   const [newComment, setNewComment] = useState('')
   const [posting, setPosting] = useState(false)
+  const [downloading, setDownloading] = useState(null)
   const fileRef = useRef()
+  const touchStartX = useRef(null)
+  const intervalRef = useRef(null)
 
-  useEffect(() => {
-    if (table) setUserTable(table)
-  }, [table])
+  useEffect(() => { if (table) setUserTable(table) }, [table])
 
   useEffect(() => {
     if (loggedIn && id) {
       fetchPhotos()
       fetchComments()
       fetchEventName()
+      // リアルタイム更新（30秒ごと）
+      intervalRef.current = setInterval(() => {
+        fetchPhotos()
+        fetchComments()
+      }, 30000)
     }
+    return () => clearInterval(intervalRef.current)
   }, [loggedIn, id])
 
   const fetchEventName = async () => {
@@ -64,6 +72,54 @@ export default function GuestPage() {
       setComments(data.comments || [])
     } catch (e) { console.error(e) }
   }
+
+  // 写真ダウンロード
+  const downloadPhoto = async (photo) => {
+    setDownloading(photo.id)
+    try {
+      const response = await fetch(photo.url)
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${photo.caption || 'photo'}.jpg`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      alert('ダウンロードに失敗しました')
+    }
+    setDownloading(null)
+  }
+
+  // スワイプ操作
+  const handleTouchStart = (e) => {
+    touchStartX.current = e.touches[0].clientX
+  }
+
+  const handleTouchEnd = (e) => {
+    if (touchStartX.current === null) return
+    const diff = touchStartX.current - e.changedTouches[0].clientX
+    if (Math.abs(diff) > 50) {
+      if (diff > 0) {
+        // 左スワイプ → 次の写真
+        setLightboxIndex(i => Math.min(i + 1, photos.length - 1))
+      } else {
+        // 右スワイプ → 前の写真
+        setLightboxIndex(i => Math.max(i - 1, 0))
+      }
+    }
+    touchStartX.current = null
+  }
+
+  const openLightbox = (photo) => {
+    const idx = photos.findIndex(p => p.id === photo.id)
+    setLightboxIndex(idx)
+    setLightbox(photo)
+  }
+
+  useEffect(() => {
+    if (lightbox) setLightbox(photos[lightboxIndex])
+  }, [lightboxIndex])
 
   const handleFiles = (e) => {
     const files = Array.from(e.target.files).map(f => ({
@@ -110,18 +166,14 @@ export default function GuestPage() {
       const res = await fetch('/api/comments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          eventId: id, table: userTable, nick, text: newComment.trim(),
-        })
+        body: JSON.stringify({ eventId: id, table: userTable, nick, text: newComment.trim() })
       })
       const data = await res.json()
       if (data.success) {
         setComments(prev => [data.comment, ...prev])
         setNewComment('')
       }
-    } catch (e) {
-      alert('投稿に失敗しました')
-    }
+    } catch (e) { alert('投稿に失敗しました') }
     setPosting(false)
   }
 
@@ -140,13 +192,9 @@ export default function GuestPage() {
           <h2 style={{ margin: '8px 0 4px', color: '#c2185b', fontSize: 22 }}>Wedding Photo</h2>
           <p style={{ color: '#aaa', fontSize: 13, margin: 0 }}>{tableLabel()} のアルバム</p>
         </div>
-        <input
-          placeholder="ニックネームを入力"
-          value={nick}
-          onChange={e => setNick(e.target.value)}
+        <input placeholder="ニックネームを入力" value={nick} onChange={e => setNick(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && nick.trim() && setLoggedIn(true)}
-          style={{ width: '100%', padding: '13px 14px', borderRadius: 12, border: '1.5px solid #eee', fontSize: 16, boxSizing: 'border-box', marginBottom: 12, outline: 'none' }}
-        />
+          style={{ width: '100%', padding: '13px 14px', borderRadius: 12, border: '1.5px solid #eee', fontSize: 16, boxSizing: 'border-box', marginBottom: 12, outline: 'none' }} />
         <button onClick={() => nick.trim() && setLoggedIn(true)} disabled={!nick.trim()}
           style={{ width: '100%', padding: 14, borderRadius: 12, border: 'none', background: nick.trim() ? 'linear-gradient(90deg,#e91e8c,#9c27b0)' : '#ddd', color: 'white', fontWeight: 'bold', fontSize: 16, cursor: nick.trim() ? 'pointer' : 'default' }}>
           入場する 🎊
@@ -156,7 +204,6 @@ export default function GuestPage() {
     </div>
   )
 
-  // アルバム画面
   return (
     <div style={{ minHeight: '100dvh', background: '#f5f5f5', fontFamily: 'sans-serif', paddingBottom: 80 }}>
 
@@ -172,15 +219,21 @@ export default function GuestPage() {
         </button>
       </div>
 
-      {/* 写真/掲示板 切替タブ */}
+      {/* タブ */}
       <div style={{ display: 'flex', background: 'white', borderBottom: '1px solid #eee' }}>
-        {[{ id: 'photos', label: `📷 写真 (${photos.length})` }, { id: 'comments', label: `💬 掲示板 (${comments.length})` }].map(t => (
+        {[
+          { id: 'photos',   label: `📷 写真`, count: photos.length },
+          { id: 'comments', label: `💬 掲示板`, count: comments.length },
+        ].map(t => (
           <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
             flex: 1, padding: '12px 0', border: 'none', background: 'none', cursor: 'pointer', fontSize: 14,
             fontWeight: activeTab === t.id ? 'bold' : 'normal',
             color: activeTab === t.id ? '#e91e8c' : '#888',
             borderBottom: activeTab === t.id ? '2.5px solid #e91e8c' : '2.5px solid transparent'
-          }}>{t.label}</button>
+          }}>
+            {t.label}
+            <span style={{ marginLeft: 4, background: activeTab === t.id ? '#e91e8c' : '#eee', color: activeTab === t.id ? 'white' : '#999', borderRadius: 10, padding: '1px 7px', fontSize: 11 }}>{t.count}</span>
+          </button>
         ))}
       </div>
 
@@ -190,14 +243,18 @@ export default function GuestPage() {
           {photos.map(p => {
             const b = VIS_BADGE[p.visibility] || VIS_BADGE.public
             return (
-              <div key={p.id} onClick={() => setLightbox(p)} style={{ background: 'white', borderRadius: 14, overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.07)', cursor: 'pointer' }}>
-                <div style={{ position: 'relative' }}>
-                  <img src={p.url} alt={p.caption} style={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover', display: 'block' }} />
+              <div key={p.id} style={{ background: 'white', borderRadius: 14, overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.07)' }}>
+                <div style={{ position: 'relative' }} onClick={() => openLightbox(p)}>
+                  <img src={p.url} alt={p.caption} style={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover', display: 'block', cursor: 'pointer' }} />
                   <span style={{ position: 'absolute', top: 5, right: 5, fontSize: 10, background: b.bg, color: b.color, padding: '2px 6px', borderRadius: 8, fontWeight: 'bold' }}>{b.label}</span>
                 </div>
                 <div style={{ padding: '8px 10px 10px' }}>
-                  <div style={{ fontSize: 12, fontWeight: 'bold', color: '#222', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.caption}</div>
-                  <div style={{ fontSize: 11, color: '#aaa' }}>{p.nick} · {p.ts}</div>
+                  <div style={{ fontSize: 12, fontWeight: 'bold', color: '#222', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 2 }}>{p.caption}</div>
+                  <div style={{ fontSize: 11, color: '#aaa', marginBottom: 6 }}>{p.nick} · {p.ts}</div>
+                  <button onClick={() => downloadPhoto(p)} disabled={downloading === p.id}
+                    style={{ width: '100%', padding: '5px', borderRadius: 8, border: '1px solid #e91e8c', background: 'white', color: '#e91e8c', fontSize: 11, cursor: 'pointer', fontWeight: 'bold' }}>
+                    {downloading === p.id ? '⏳ 保存中...' : '⬇️ 保存'}
+                  </button>
                 </div>
               </div>
             )
@@ -206,6 +263,7 @@ export default function GuestPage() {
             <div style={{ gridColumn: '1/-1', textAlign: 'center', padding: '48px 0', color: '#ccc' }}>
               <div style={{ fontSize: 40 }}>📷</div>
               <div style={{ marginTop: 8 }}>まだ写真がありません</div>
+              <div style={{ fontSize: 12, marginTop: 4 }}>30秒ごとに自動更新されます</div>
             </div>
           )}
         </div>
@@ -214,23 +272,15 @@ export default function GuestPage() {
       {/* 掲示板タブ */}
       {activeTab === 'comments' && (
         <div style={{ padding: '12px 14px' }}>
-
-          {/* コメント投稿 */}
           <div style={{ background: 'white', borderRadius: 16, padding: 14, marginBottom: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
-            <textarea
-              placeholder="メッセージを入力（例：おめでとうございます！）"
-              value={newComment}
-              onChange={e => setNewComment(e.target.value)}
-              rows={3}
-              style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1.5px solid #eee', fontSize: 14, boxSizing: 'border-box', marginBottom: 8, resize: 'none', outline: 'none' }}
-            />
+            <textarea placeholder="メッセージを入力（例：おめでとうございます！）"
+              value={newComment} onChange={e => setNewComment(e.target.value)} rows={3}
+              style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1.5px solid #eee', fontSize: 14, boxSizing: 'border-box', marginBottom: 8, resize: 'none', outline: 'none' }} />
             <button onClick={postComment} disabled={posting || !newComment.trim()}
               style={{ width: '100%', padding: 12, borderRadius: 10, border: 'none', background: newComment.trim() ? 'linear-gradient(90deg,#e91e8c,#9c27b0)' : '#ddd', color: 'white', fontWeight: 'bold', fontSize: 14, cursor: 'pointer' }}>
               {posting ? '投稿中...' : '📨 投稿する'}
             </button>
           </div>
-
-          {/* コメント一覧 */}
           {comments.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '32px 0', color: '#ccc' }}>
               <div style={{ fontSize: 32 }}>💬</div>
@@ -246,14 +296,45 @@ export default function GuestPage() {
         </div>
       )}
 
-      {/* Lightbox */}
+      {/* Lightbox（スワイプ対応）*/}
       {lightbox && (
-        <div onClick={() => setLightbox(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', zIndex: 200, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <img src={lightbox.url} style={{ maxWidth: '100%', maxHeight: '68dvh', borderRadius: 12, objectFit: 'contain' }} />
-          <div style={{ color: 'white', marginTop: 14, textAlign: 'center' }}>
-            <div style={{ fontSize: 16, fontWeight: 'bold' }}>{lightbox.caption}</div>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.95)', zIndex: 200, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+          onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+
+          {/* 前後ボタン */}
+          <div style={{ position: 'absolute', top: '50%', left: 12, transform: 'translateY(-50%)', zIndex: 10 }}>
+            {lightboxIndex > 0 && (
+              <button onClick={() => setLightboxIndex(i => i - 1)}
+                style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', width: 40, height: 40, borderRadius: '50%', fontSize: 18, cursor: 'pointer' }}>‹</button>
+            )}
+          </div>
+          <div style={{ position: 'absolute', top: '50%', right: 12, transform: 'translateY(-50%)', zIndex: 10 }}>
+            {lightboxIndex < photos.length - 1 && (
+              <button onClick={() => setLightboxIndex(i => i + 1)}
+                style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', width: 40, height: 40, borderRadius: '50%', fontSize: 18, cursor: 'pointer' }}>›</button>
+            )}
+          </div>
+
+          <img src={lightbox.url} style={{ maxWidth: '100%', maxHeight: '65dvh', borderRadius: 12, objectFit: 'contain' }} />
+
+          {/* 枚数インジケーター */}
+          <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, marginTop: 8 }}>
+            {lightboxIndex + 1} / {photos.length}
+          </div>
+
+          <div style={{ color: 'white', marginTop: 8, textAlign: 'center' }}>
+            <div style={{ fontSize: 15, fontWeight: 'bold' }}>{lightbox.caption}</div>
             <div style={{ fontSize: 12, opacity: 0.6, marginTop: 4 }}>{lightbox.nick} · {lightbox.ts}</div>
-            <button onClick={() => setLightbox(null)} style={{ marginTop: 12, background: 'rgba(255,255,255,0.15)', border: 'none', color: 'white', padding: '8px 18px', borderRadius: 20, cursor: 'pointer', fontSize: 13 }}>✕ 閉じる</button>
+            <div style={{ marginTop: 12, display: 'flex', gap: 10, justifyContent: 'center' }}>
+              <button onClick={() => downloadPhoto(lightbox)} disabled={downloading === lightbox.id}
+                style={{ background: 'rgba(255,255,255,0.15)', border: 'none', color: 'white', padding: '8px 18px', borderRadius: 20, cursor: 'pointer', fontSize: 13 }}>
+                {downloading === lightbox.id ? '⏳ 保存中...' : '⬇️ 保存'}
+              </button>
+              <button onClick={() => setLightbox(null)}
+                style={{ background: 'rgba(255,255,255,0.15)', border: 'none', color: 'white', padding: '8px 18px', borderRadius: 20, cursor: 'pointer', fontSize: 13 }}>
+                ✕ 閉じる
+              </button>
+            </div>
           </div>
         </div>
       )}
