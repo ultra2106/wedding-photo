@@ -3,19 +3,10 @@ export const dynamic = 'force-dynamic'
 import { useRouter } from 'next/router'
 import { useState, useEffect, useRef } from 'react'
 
-const GROUPS = [
-  { id: 'public', name: '📢 全体', color: '#e91e8c' },
-  { id: 'table1', name: '🌸 1卓', color: '#9c27b0' },
-  { id: 'table2', name: '🌿 2卓', color: '#43a047' },
-  { id: 'table3', name: '🌟 3卓', color: '#fb8c00' },
-  { id: 'table4', name: '💫 4卓', color: '#00acc1' },
-  { id: 'afterparty', name: '🎉 二次会', color: '#f44336' },
-]
-
 const VIS_BADGE = {
   public: { label: '🌐 全員', bg: '#e8f5e9', color: '#2e7d32' },
-  table: { label: '👥 卓限定', bg: '#e3f2fd', color: '#1565c0' },
-  host: { label: '🔒 主催者', bg: '#fce4ec', color: '#b71c1c' },
+  table:  { label: '👥 卓限定', bg: '#e3f2fd', color: '#1565c0' },
+  host:   { label: '🔒 主催者', bg: '#fce4ec', color: '#b71c1c' },
 }
 
 export default function GuestPage() {
@@ -24,14 +15,18 @@ export default function GuestPage() {
   const [nick, setNick] = useState('')
   const [loggedIn, setLoggedIn] = useState(false)
   const [userTable, setUserTable] = useState(table || 'table1')
+  const [eventName, setEventName] = useState('')
   const [photos, setPhotos] = useState([])
-  const [activeGroup, setActiveGroup] = useState('all')
+  const [comments, setComments] = useState([])
+  const [activeTab, setActiveTab] = useState('photos')
   const [lightbox, setLightbox] = useState(null)
   const [uploadOpen, setUploadOpen] = useState(false)
   const [newCap, setNewCap] = useState('')
   const [newVis, setNewVis] = useState('public')
   const [selectedFiles, setSelectedFiles] = useState([])
   const [uploading, setUploading] = useState(false)
+  const [newComment, setNewComment] = useState('')
+  const [posting, setPosting] = useState(false)
   const fileRef = useRef()
 
   useEffect(() => {
@@ -39,24 +34,40 @@ export default function GuestPage() {
   }, [table])
 
   useEffect(() => {
-    if (loggedIn && id) fetchPhotos()
+    if (loggedIn && id) {
+      fetchPhotos()
+      fetchComments()
+      fetchEventName()
+    }
   }, [loggedIn, id])
+
+  const fetchEventName = async () => {
+    try {
+      const res = await fetch(`/api/event-name?eventId=${id}`)
+      const data = await res.json()
+      if (data.name) setEventName(data.name)
+    } catch (e) {}
+  }
 
   const fetchPhotos = async () => {
     try {
       const res = await fetch(`/api/photos?eventId=${id}&table=${userTable}`)
       const data = await res.json()
       setPhotos(data.photos || [])
-    } catch (e) {
-      console.error(e)
-    }
+    } catch (e) { console.error(e) }
+  }
+
+  const fetchComments = async () => {
+    try {
+      const res = await fetch(`/api/comments?eventId=${id}&table=${userTable}`)
+      const data = await res.json()
+      setComments(data.comments || [])
+    } catch (e) { console.error(e) }
   }
 
   const handleFiles = (e) => {
     const files = Array.from(e.target.files).map(f => ({
-      file: f,
-      preview: URL.createObjectURL(f),
-      name: f.name,
+      file: f, preview: URL.createObjectURL(f), name: f.name,
     }))
     setSelectedFiles(files)
     e.target.value = ''
@@ -76,14 +87,9 @@ export default function GuestPage() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            eventId: id,
-            fileName: f.name,
-            fileData: base64,
-            mimeType: f.file.type,
-            group: userTable,
-            caption: newCap,
-            visibility: newVis,
-            nick,
+            eventId: id, fileName: f.name, fileData: base64,
+            mimeType: f.file.type, group: userTable,
+            caption: newCap, visibility: newVis, nick,
           })
         })
       }
@@ -97,7 +103,33 @@ export default function GuestPage() {
     setUploading(false)
   }
 
-  const groupColor = GROUPS.find(g => g.id === activeGroup)?.color || '#e91e8c'
+  const postComment = async () => {
+    if (!newComment.trim()) return
+    setPosting(true)
+    try {
+      const res = await fetch('/api/comments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          eventId: id, table: userTable, nick, text: newComment.trim(),
+        })
+      })
+      const data = await res.json()
+      if (data.success) {
+        setComments(prev => [data.comment, ...prev])
+        setNewComment('')
+      }
+    } catch (e) {
+      alert('投稿に失敗しました')
+    }
+    setPosting(false)
+  }
+
+  const tableLabel = () => {
+    if (userTable === 'public') return '📢 全体公開'
+    if (userTable === 'afterparty') return '🎉 二次会'
+    return `🌸 ${userTable.replace('table', '')}卓`
+  }
 
   // ログイン画面
   if (!loggedIn) return (
@@ -106,9 +138,7 @@ export default function GuestPage() {
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
           <div style={{ fontSize: 48 }}>💍</div>
           <h2 style={{ margin: '8px 0 4px', color: '#c2185b', fontSize: 22 }}>Wedding Photo</h2>
-          <p style={{ color: '#aaa', fontSize: 13, margin: 0 }}>
-            {GROUPS.find(g => g.id === userTable)?.name || userTable} のアルバム
-          </p>
+          <p style={{ color: '#aaa', fontSize: 13, margin: 0 }}>{tableLabel()} のアルバム</p>
         </div>
         <input
           placeholder="ニックネームを入力"
@@ -126,8 +156,6 @@ export default function GuestPage() {
     </div>
   )
 
-  const visible = photos.filter(p => activeGroup === 'all' || p.group === activeGroup)
-
   // アルバム画面
   return (
     <div style={{ minHeight: '100dvh', background: '#f5f5f5', fontFamily: 'sans-serif', paddingBottom: 80 }}>
@@ -135,8 +163,8 @@ export default function GuestPage() {
       {/* Header */}
       <div style={{ background: 'linear-gradient(90deg,#e91e8c,#9c27b0)', color: 'white', padding: '12px 16px', position: 'sticky', top: 0, zIndex: 100, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <div style={{ fontWeight: 'bold', fontSize: 17 }}>💍 Wedding Photo</div>
-          <div style={{ fontSize: 11, opacity: 0.8 }}>{nick} · {GROUPS.find(g => g.id === userTable)?.name}</div>
+          <div style={{ fontWeight: 'bold', fontSize: 17 }}>💍 {eventName || 'Wedding Photo'}</div>
+          <div style={{ fontSize: 11, opacity: 0.8 }}>{nick} · {tableLabel()}</div>
         </div>
         <button onClick={() => setUploadOpen(true)}
           style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', padding: '7px 14px', borderRadius: 10, fontSize: 13, fontWeight: 'bold', cursor: 'pointer' }}>
@@ -144,42 +172,79 @@ export default function GuestPage() {
         </button>
       </div>
 
-      {/* Tabs */}
-      <div style={{ background: 'white', borderBottom: '1px solid #eee', padding: '8px 10px', display: 'flex', gap: 6, overflowX: 'auto' }}>
-        <button onClick={() => setActiveGroup('all')} style={{ padding: '7px 12px', borderRadius: 20, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: 12, fontWeight: activeGroup === 'all' ? 'bold' : 'normal', background: activeGroup === 'all' ? '#555' : '#f0f0f0', color: activeGroup === 'all' ? 'white' : '#666' }}>
-          📋 すべて
-        </button>
-        {GROUPS.map(g => (
-          <button key={g.id} onClick={() => setActiveGroup(g.id)} style={{ padding: '7px 12px', borderRadius: 20, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: 12, fontWeight: activeGroup === g.id ? 'bold' : 'normal', background: activeGroup === g.id ? g.color : '#f0f0f0', color: activeGroup === g.id ? 'white' : '#666' }}>
-            {g.name}
-          </button>
+      {/* 写真/掲示板 切替タブ */}
+      <div style={{ display: 'flex', background: 'white', borderBottom: '1px solid #eee' }}>
+        {[{ id: 'photos', label: `📷 写真 (${photos.length})` }, { id: 'comments', label: `💬 掲示板 (${comments.length})` }].map(t => (
+          <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
+            flex: 1, padding: '12px 0', border: 'none', background: 'none', cursor: 'pointer', fontSize: 14,
+            fontWeight: activeTab === t.id ? 'bold' : 'normal',
+            color: activeTab === t.id ? '#e91e8c' : '#888',
+            borderBottom: activeTab === t.id ? '2.5px solid #e91e8c' : '2.5px solid transparent'
+          }}>{t.label}</button>
         ))}
       </div>
 
-      {/* Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, padding: '10px 10px 0' }}>
-        {visible.map(p => {
-          const b = VIS_BADGE[p.visibility] || VIS_BADGE.public
-          return (
-            <div key={p.id} onClick={() => setLightbox(p)} style={{ background: 'white', borderRadius: 14, overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.07)', cursor: 'pointer' }}>
-              <div style={{ position: 'relative' }}>
-                <img src={p.url} alt={p.caption} style={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover', display: 'block' }} />
-                <span style={{ position: 'absolute', top: 5, right: 5, fontSize: 10, background: b.bg, color: b.color, padding: '2px 6px', borderRadius: 8, fontWeight: 'bold' }}>{b.label}</span>
+      {/* 写真タブ */}
+      {activeTab === 'photos' && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, padding: '10px 10px 0' }}>
+          {photos.map(p => {
+            const b = VIS_BADGE[p.visibility] || VIS_BADGE.public
+            return (
+              <div key={p.id} onClick={() => setLightbox(p)} style={{ background: 'white', borderRadius: 14, overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.07)', cursor: 'pointer' }}>
+                <div style={{ position: 'relative' }}>
+                  <img src={p.url} alt={p.caption} style={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover', display: 'block' }} />
+                  <span style={{ position: 'absolute', top: 5, right: 5, fontSize: 10, background: b.bg, color: b.color, padding: '2px 6px', borderRadius: 8, fontWeight: 'bold' }}>{b.label}</span>
+                </div>
+                <div style={{ padding: '8px 10px 10px' }}>
+                  <div style={{ fontSize: 12, fontWeight: 'bold', color: '#222', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.caption}</div>
+                  <div style={{ fontSize: 11, color: '#aaa' }}>{p.nick} · {p.ts}</div>
+                </div>
               </div>
-              <div style={{ padding: '8px 10px 10px' }}>
-                <div style={{ fontSize: 12, fontWeight: 'bold', color: '#222', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.caption}</div>
-                <div style={{ fontSize: 11, color: '#aaa' }}>{p.nick} · {p.ts}</div>
-              </div>
+            )
+          })}
+          {photos.length === 0 && (
+            <div style={{ gridColumn: '1/-1', textAlign: 'center', padding: '48px 0', color: '#ccc' }}>
+              <div style={{ fontSize: 40 }}>📷</div>
+              <div style={{ marginTop: 8 }}>まだ写真がありません</div>
             </div>
-          )
-        })}
-        {visible.length === 0 && (
-          <div style={{ gridColumn: '1/-1', textAlign: 'center', padding: '48px 0', color: '#ccc' }}>
-            <div style={{ fontSize: 40 }}>📷</div>
-            <div style={{ marginTop: 8 }}>まだ写真がありません</div>
+          )}
+        </div>
+      )}
+
+      {/* 掲示板タブ */}
+      {activeTab === 'comments' && (
+        <div style={{ padding: '12px 14px' }}>
+
+          {/* コメント投稿 */}
+          <div style={{ background: 'white', borderRadius: 16, padding: 14, marginBottom: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+            <textarea
+              placeholder="メッセージを入力（例：おめでとうございます！）"
+              value={newComment}
+              onChange={e => setNewComment(e.target.value)}
+              rows={3}
+              style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1.5px solid #eee', fontSize: 14, boxSizing: 'border-box', marginBottom: 8, resize: 'none', outline: 'none' }}
+            />
+            <button onClick={postComment} disabled={posting || !newComment.trim()}
+              style={{ width: '100%', padding: 12, borderRadius: 10, border: 'none', background: newComment.trim() ? 'linear-gradient(90deg,#e91e8c,#9c27b0)' : '#ddd', color: 'white', fontWeight: 'bold', fontSize: 14, cursor: 'pointer' }}>
+              {posting ? '投稿中...' : '📨 投稿する'}
+            </button>
           </div>
-        )}
-      </div>
+
+          {/* コメント一覧 */}
+          {comments.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '32px 0', color: '#ccc' }}>
+              <div style={{ fontSize: 32 }}>💬</div>
+              <div style={{ marginTop: 8 }}>まだメッセージがありません</div>
+            </div>
+          ) : comments.map(c => (
+            <div key={c.id} style={{ background: 'white', borderRadius: 14, padding: '12px 14px', marginBottom: 10, boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+              <div style={{ fontWeight: 'bold', fontSize: 13, color: '#333', marginBottom: 4 }}>{c.nick}</div>
+              <div style={{ fontSize: 14, color: '#444', lineHeight: 1.6 }}>{c.text}</div>
+              <div style={{ fontSize: 11, color: '#bbb', marginTop: 6 }}>{c.createdAt}</div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Lightbox */}
       {lightbox && (
