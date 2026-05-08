@@ -1,6 +1,17 @@
 import { getServerSession } from 'next-auth'
 import { authOptions } from './auth/[...nextauth]'
 import { google } from 'googleapis'
+import crypto from 'crypto'
+
+// トークンを暗号化
+function encrypt(text) {
+  const secret = process.env.NEXTAUTH_SECRET.padEnd(32, '0').slice(0, 32)
+  const iv = crypto.randomBytes(16)
+  const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(secret), iv)
+  let encrypted = cipher.update(text)
+  encrypted = Buffer.concat([encrypted, cipher.final()])
+  return iv.toString('hex') + ':' + encrypted.toString('hex')
+}
 
 function getServiceClient() {
   const auth = new google.auth.GoogleAuth({
@@ -8,33 +19,36 @@ function getServiceClient() {
       client_email: process.env.GOOGLE_SERVICE_EMAIL,
       private_key: process.env.GOOGLE_SERVICE_KEY?.replace(/\\n/g, '\n'),
     },
-    scopes: [
-      'https://www.googleapis.com/auth/drive.file',
-      'https://www.googleapis.com/auth/drive',
-      'https://www.googleapis.com/auth/spreadsheets',
-    ],
+    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
   })
   return auth
+}
+
+function getUserDriveClient(accessToken) {
+  const auth = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET
+  )
+  auth.setCredentials({ access_token: accessToken })
+  return google.drive({ version: 'v3', auth })
 }
 
 export default async function handler(req, res) {
   const session = await getServerSession(req, res, authOptions)
   if (!session) return res.status(401).json({ error: 'ログインが必要です' })
 
-  const auth = getServiceClient()
-  const sheets = google.sheets({ version: 'v4', auth })
-  const drive = google.drive({ version: 'v3', auth })
+  const serviceAuth = getServiceClient()
+  const sheets = google.sheets({ version: 'v4', auth: serviceAuth })
+  const drive = getUserDriveClient(session.accessToken)
 
   // イベント一覧を取得
   if (req.method === 'GET') {
     try {
       const response = await sheets.spreadsheets.values.get({
         spreadsheetId: process.env.SPREADSHEET_ID,
-        range: 'Events!A2:F',
+        range: 'Events!A2:G',
       })
       const rows = response.data.values || []
-
-      // 自分のイベントだけ返す
       const events = rows
         .filter(row => row[0] === session.user.email)
         .map(row => ({
@@ -44,7 +58,6 @@ export default async function handler(req, res) {
           tables:   Number(row[4]),
           folderId: row[5],
         }))
-
       res.json({ events })
     } catch (e) {
       console.error(e)
@@ -58,7 +71,7 @@ export default async function handler(req, res) {
       const { name, date, tables } = req.body
       const eventId = `evt_${Date.now()}`
 
-      // 1. ルートフォルダを作成
+      // 主催者のドライブにフォルダを作成
       const rootFolder = await drive.files.create({
         requestBody: {
           name: `💍 ${name}`,
@@ -68,14 +81,13 @@ export default async function handler(req, res) {
       })
       const rootFolderId = rootFolder.data.id
 
-      // 2. 卓ごとのサブフォルダを作成
+      // 卓ごとのサブフォルダを作成
       const tableNames = [
         '📢 全体公開',
         ...Array.from({ length: tables }, (_, i) => `🌸 ${i + 1}卓`),
         '🎉 二次会',
         '🔒 主催者のみ',
       ]
-
       await Promise.all(tableNames.map(tName =>
         drive.files.create({
           requestBody: {
@@ -86,21 +98,12 @@ export default async function handler(req, res) {
         })
       ))
 
-      // 3. 主催者のGoogleドライブと共有
-      // サービスアカウントが作ったフォルダを主催者も見られるように
-      await drive.permissions.create({
-        fileId: rootFolderId,
-        requestBody: {
-          role: 'writer',
-          type: 'user',
-          emailAddress: session.user.email,
-        }
-      })
+      // リフレッシュトークンを暗号化して保存
+      const encryptedToken = encrypt(session.refreshToken)
 
-      // 4. スプレッドシートに保存
       await sheets.spreadsheets.values.append({
         spreadsheetId: process.env.SPREADSHEET_ID,
-        range: 'Events!A:F',
+        range: 'Events!A:G',
         valueInputOption: 'RAW',
         requestBody: {
           values: [[
@@ -110,6 +113,7 @@ export default async function handler(req, res) {
             date,
             tables,
             rootFolderId,
+            encryptedToken, // 暗号化したリフレッシュトークン
           ]]
         }
       })
