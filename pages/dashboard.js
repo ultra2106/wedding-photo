@@ -124,7 +124,7 @@ export default function Dashboard() {
                 <span style={{ background: '#f3e8ff', color: '#9c27b0', fontSize: 11, padding: '4px 10px', borderRadius: 10, fontWeight: 'bold' }}>開催予定</span>
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={() => router.push(`/guest/${ev.id}`)}
+                <button onClick={() => router.push(`/host/${ev.id}`)}
                   style={{ flex: 1, padding: '10px', borderRadius: 10, border: 'none', background: 'linear-gradient(90deg,#e91e8c,#9c27b0)', color: 'white', fontWeight: 'bold', fontSize: 13, cursor: 'pointer' }}>
                   📷 アルバムを開く
                 </button>
