@@ -7,7 +7,7 @@ import QRCode from 'qrcode'
 
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://wedding-photo-gamma.vercel.app'
 
-function QRCanvas({ value, color = '#1a1a1a' }) {
+function QRCanvas({ value, color = '#1a1a1a', id }) {
   const canvasRef = useRef()
 
   useEffect(() => {
@@ -22,7 +22,7 @@ function QRCanvas({ value, color = '#1a1a1a' }) {
     })
   }, [value, color])
 
-  return <canvas ref={canvasRef} style={{ borderRadius: 8, display: 'block' }} />
+  return <canvas ref={canvasRef} id={id} style={{ borderRadius: 8, display: 'block' }} />
 }
 
 export default function QRPage() {
@@ -107,7 +107,7 @@ export default function QRPage() {
               <div key={t.id} style={{ background: 'white', borderRadius: 16, padding: 16, textAlign: 'center', boxShadow: '0 2px 12px rgba(0,0,0,0.07)', border: `2px solid ${t.color}22` }}>
                 <div style={{ fontWeight: 'bold', fontSize: 14, color: t.color, marginBottom: 10 }}>{t.name}</div>
                 <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 8 }}>
-                  <QRCanvas value={url} color={t.color} />
+                  <QRCanvas value={url} color={t.color} id={`qr-${t.id}`} />
                 </div>
                 <div style={{ fontSize: 9, color: '#ccc', wordBreak: 'break-all', marginBottom: 8 }}>{url}</div>
                 <div style={{ display: 'flex', gap: 6 }}>
