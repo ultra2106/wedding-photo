@@ -45,7 +45,6 @@ if (!fileId || !eventId) {
   return res.status(400).json({ error: '必須パラメータが不足しています' })
 }
 
-// スプレッドシートからリフレッシュトークンを取得
 const serviceAuth = getServiceClient()
 const sheets = google.sheets({ version: 'v4', auth: serviceAuth })
 
@@ -64,7 +63,6 @@ if (!eventRow) {
 const encryptedRefreshToken = eventRow[6]
 const drive = await getDriveClientFromRefreshToken(encryptedRefreshToken)
 
-// 削除前に投稿者を確認（ゲストは自分の写真のみ削除可能）
 if (!isHost) {
   const file = await drive.files.get({
     fileId,
@@ -76,7 +74,6 @@ if (!isHost) {
   }
 }
 
-// Googleドライブからファイルを削除（ゴミ箱に移動）
 await drive.files.update({
   fileId,
   requestBody: { trashed: true },
