@@ -191,24 +191,71 @@ export default function GuestPage() {
   }
 
   if (!loggedIn) return (
-    <div style={{ minHeight: '100dvh', background: 'linear-gradient(160deg,#fff0f6,#f3e8ff)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, fontFamily: 'sans-serif' }}>
-      <div style={{ background: 'white', borderRadius: 24, padding: 28, width: '100%', maxWidth: 360, boxShadow: '0 8px 40px rgba(233,30,140,0.12)' }}>
-        <div style={{ textAlign: 'center', marginBottom: 24 }}>
-          <div style={{ fontSize: 48 }}>💍</div>
-          <h2 style={{ margin: '8px 0 4px', color: '#c2185b', fontSize: 22 }}>Wedding Photo</h2>
-          <p style={{ color: '#aaa', fontSize: 13, margin: 0 }}>{tableLabel()} のアルバム</p>
-        </div>
-        <input placeholder="ニックネームを入力" value={nick} onChange={e => setNick(e.target.value)}
+  <div style={{ minHeight: '100dvh', background: 'linear-gradient(160deg,#fff0f6,#f3e8ff)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, fontFamily: 'sans-serif' }}>
+    <div style={{ background: "white", borderRadius: 24, overflow: "hidden", boxShadow: "0 8px 32px rgba(233,30,140,0.12)", width: '100%', maxWidth: 360 }}>
+
+      {/* 上部装飾 */}
+      <div style={{ background: "linear-gradient(135deg,#e91e8c,#9c27b0)", padding: "32px 24px 24px", textAlign: "center", position: "relative" }}>
+        <div style={{ fontSize: 10, letterSpacing: "0.2em", color: "rgba(255,255,255,0.7)", marginBottom: 8 }}>WEDDING PHOTO</div>
+        <div style={{ fontSize: 48, marginBottom: 8 }}>💍</div>
+        <div style={{ fontSize: 22, fontWeight: "bold", color: "white", marginBottom: 4 }}>{tableLabel()} のアルバム</div>
+        <div style={{ fontSize: 12, color: "rgba(255,255,255,0.7)" }}>2026年8月1日</div>
+
+        {/* 波形装飾 */}
+        <div style={{ position: "absolute", bottom: -1, left: 0, right: 0, height: 20, background: "linear-gradient(160deg,#fff0f6,#f3e8ff)", borderRadius: "50% 50% 0 0 / 20px 20px 0 0" }} />
+      </div>
+
+      {/* 入力エリア */}
+      <div style={{ padding: "28px 24px 32px", textAlign: "center" }}>
+        <div style={{ fontSize: 14, color: "#888", marginBottom: 24 }}>ようこそ！お名前を教えてください</div>
+
+        <input
+          placeholder="ニックネームを入力"
+          value={nick}
+          onChange={e => setNick(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && nick.trim() && setLoggedIn(true)}
-          style={{ width: '100%', padding: '13px 14px', borderRadius: 12, border: '1.5px solid #eee', fontSize: 16, boxSizing: 'border-box', marginBottom: 12, outline: 'none' }} />
-        <button onClick={() => nick.trim() && setLoggedIn(true)} disabled={!nick.trim()}
-          style={{ width: '100%', padding: 14, borderRadius: 12, border: 'none', background: nick.trim() ? 'linear-gradient(90deg,#e91e8c,#9c27b0)' : '#ddd', color: 'white', fontWeight: 'bold', fontSize: 16, cursor: nick.trim() ? 'pointer' : 'default' }}>
+          style={{
+            width: "100%",
+            padding: "14px",
+            borderRadius: 14,
+            border: "1.5px solid #e0bfff",
+            fontSize: 16,
+            boxSizing: "border-box",
+            marginBottom: 14,
+            outline: "none",
+            textAlign: "center",
+            background: "white"
+          }}
+        />
+
+        <button
+          onClick={() => nick.trim() && setLoggedIn(true)}
+          disabled={!nick.trim()}
+          style={{
+            width: "100%",
+            padding: 14,
+            borderRadius: 14,
+            border: "none",
+            background: nick.trim()
+              ? "linear-gradient(90deg,#e91e8c,#9c27b0)"
+              : "#ddd",
+            color: "white",
+            fontWeight: "bold",
+            fontSize: 16,
+            cursor: nick.trim() ? "pointer" : "default"
+          }}
+        >
           入場する 🎊
         </button>
-        <p style={{ color: '#bbb', fontSize: 12, textAlign: 'center', marginTop: 12 }}>Googleアカウント不要です</p>
+
+        <div style={{ fontSize: 11, color: "#ccc", marginTop: 12 }}>
+          Googleアカウント不要です
+        </div>
       </div>
     </div>
-  )
+  </div>
+)
+
 
   return (
     <div style={{ minHeight: '100dvh', background: '#f5f5f5', fontFamily: 'sans-serif', paddingBottom: 80 }}>
