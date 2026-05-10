@@ -3,7 +3,6 @@ import { authOptions } from './auth/[...nextauth]'
 import { google } from 'googleapis'
 import crypto from 'crypto'
 
-// トークンを暗号化
 function encrypt(text) {
   const secret = process.env.NEXTAUTH_SECRET.padEnd(32, '0').slice(0, 32)
   const iv = crypto.randomBytes(16)
@@ -41,22 +40,23 @@ export default async function handler(req, res) {
   const sheets = google.sheets({ version: 'v4', auth: serviceAuth })
   const drive = getUserDriveClient(session.accessToken)
 
-  // イベント一覧を取得
+  // イベント一覧取得
   if (req.method === 'GET') {
     try {
       const response = await sheets.spreadsheets.values.get({
         spreadsheetId: process.env.SPREADSHEET_ID,
-        range: 'Events!A2:G',
+        range: 'Events!A2:H',
       })
       const rows = response.data.values || []
       const events = rows
-        .filter(row => row[0] === session.user.email)
+        .filter(row => row[0] === session.user.email && row[1])
         .map(row => ({
-          id:       row[1],
-          name:     row[2],
-          date:     row[3],
-          tables:   Number(row[4]),
-          folderId: row[5],
+          id:         row[1],
+          name:       row[2],
+          date:       row[3],
+          tables:     Number(row[4]),
+          folderId:   row[5],
+          tableNames: row[7] ? JSON.parse(row[7]) : null, // カスタム卓名
         }))
       res.json({ events })
     } catch (e) {
@@ -65,13 +65,17 @@ export default async function handler(req, res) {
     }
   }
 
-  // 新しいイベントを作成
+  // イベント作成
   if (req.method === 'POST') {
     try {
-      const { name, date, tables } = req.body
+      const { name, date, tables, tableNames } = req.body
       const eventId = `evt_${Date.now()}`
 
-      // 主催者のドライブにフォルダを作成
+      // カスタム卓名があればそれを使う、なければデフォルト
+      const customNames = tableNames || Array.from({ length: tables }, (_, i) => `${i + 1}卓`)
+      const afterpartyName = '二次会'
+
+      // ドライブにフォルダ作成
       const rootFolder = await drive.files.create({
         requestBody: {
           name: `💍 ${name}`,
@@ -81,29 +85,30 @@ export default async function handler(req, res) {
       })
       const rootFolderId = rootFolder.data.id
 
-      // 卓ごとのサブフォルダを作成
-      const tableNames = [
+      // 卓ごとのサブフォルダ作成
+      const folderNames = [
         '📢 全体公開',
-        ...Array.from({ length: tables }, (_, i) => `🌸 ${i + 1}卓`),
-        '🎉 二次会',
+        ...customNames.map((n, i) => `🌸 ${n}`),
+        `🎉 ${afterpartyName}`,
         '🔒 主催者のみ',
       ]
-      await Promise.all(tableNames.map(tName =>
+
+      await Promise.all(folderNames.map(fName =>
         drive.files.create({
           requestBody: {
-            name: tName,
+            name: fName,
             mimeType: 'application/vnd.google-apps.folder',
             parents: [rootFolderId],
           }
         })
       ))
 
-      // リフレッシュトークンを暗号化して保存
       const encryptedToken = encrypt(session.refreshToken)
 
+      // H列にカスタム卓名をJSON保存
       await sheets.spreadsheets.values.append({
         spreadsheetId: process.env.SPREADSHEET_ID,
-        range: 'Events!A:G',
+        range: 'Events!A:H',
         valueInputOption: 'RAW',
         requestBody: {
           values: [[
@@ -113,14 +118,15 @@ export default async function handler(req, res) {
             date,
             tables,
             rootFolderId,
-            encryptedToken, // 暗号化したリフレッシュトークン
+            encryptedToken,
+            JSON.stringify(customNames), // カスタム卓名
           ]]
         }
       })
 
       res.json({
         success: true,
-        event: { id: eventId, name, date, tables, folderId: rootFolderId }
+        event: { id: eventId, name, date, tables, folderId: rootFolderId, tableNames: customNames }
       })
 
     } catch (e) {
