@@ -199,7 +199,6 @@ export default function GuestPage() {
         <div style={{ fontSize: 10, letterSpacing: "0.2em", color: "rgba(255,255,255,0.7)", marginBottom: 8 }}>WEDDING PHOTO</div>
         <div style={{ fontSize: 48, marginBottom: 8 }}>💍</div>
         <div style={{ fontSize: 22, fontWeight: "bold", color: "white", marginBottom: 4 }}>{tableLabel()} のアルバム</div>
-        <div style={{ fontSize: 12, color: "rgba(255,255,255,0.7)" }}>2026年8月1日</div>
 
         {/* 波形装飾 */}
         <div style={{ position: "absolute", bottom: -1, left: 0, right: 0, height: 20, background: "linear-gradient(160deg,#fff0f6,#f3e8ff)", borderRadius: "50% 50% 0 0 / 20px 20px 0 0" }} />
