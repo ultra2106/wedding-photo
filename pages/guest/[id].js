@@ -8,6 +8,7 @@ const VIS_BADGE = {
   table:  { label: '👥 卓限定', bg: '#e3f2fd', color: '#1565c0' },
   host:   { label: '🔒 主催者', bg: '#fce4ec', color: '#b71c1c' },
 }
+const REACTIONS = ['❤️', '👏', '😆']
 
 export default function GuestPage() {
   const router = useRouter()
@@ -18,7 +19,10 @@ export default function GuestPage() {
   const [eventName, setEventName] = useState('')
   const [photos, setPhotos] = useState([])
   const [comments, setComments] = useState([])
+  const [reactions, setReactions] = useState({})
+  const [favorites, setFavorites] = useState([])
   const [activeTab, setActiveTab] = useState('photos')
+  const [photoFilter, setPhotoFilter] = useState('all') // all | best
   const [lightbox, setLightbox] = useState(null)
   const [lightboxIndex, setLightboxIndex] = useState(0)
   const [uploadOpen, setUploadOpen] = useState(false)
@@ -31,6 +35,7 @@ export default function GuestPage() {
   const [downloading, setDownloading] = useState(null)
   const [deleting, setDeleting] = useState(null)
   const [confirmDelete, setConfirmDelete] = useState(null)
+  const [reactingId, setReactingId] = useState(null)
   const fileRef = useRef()
   const touchStartX = useRef(null)
   const intervalRef = useRef(null)
@@ -39,39 +44,56 @@ export default function GuestPage() {
 
   useEffect(() => {
     if (loggedIn && id) {
-      fetchPhotos()
-      fetchComments()
-      fetchEventName()
-      intervalRef.current = setInterval(() => {
-        fetchPhotos()
-        fetchComments()
-      }, 30000)
+      fetchAll()
+      intervalRef.current = setInterval(fetchAll, 30000)
     }
     return () => clearInterval(intervalRef.current)
   }, [loggedIn, id])
 
-  const fetchEventName = async () => {
+  const fetchAll = async () => {
     try {
-      const res = await fetch(`/api/event-name?eventId=${id}`)
-      const data = await res.json()
-      if (data.name) setEventName(data.name)
-    } catch (e) {}
-  }
-
-  const fetchPhotos = async () => {
-    try {
-      const res = await fetch(`/api/photos?eventId=${id}&table=${userTable}`)
-      const data = await res.json()
-      setPhotos(data.photos || [])
+      const [phRes, cmRes, rcRes, fvRes, evRes] = await Promise.all([
+        fetch(`/api/photos?eventId=${id}&table=${userTable}`),
+        fetch(`/api/comments?eventId=${id}&table=${userTable}`),
+        fetch(`/api/reactions?eventId=${id}`),
+        fetch(`/api/favorites?eventId=${id}`),
+        fetch(`/api/event-name?eventId=${id}`),
+      ])
+      const [phData, cmData, rcData, fvData, evData] = await Promise.all([
+        phRes.json(), cmRes.json(), rcRes.json(), fvRes.json(), evRes.json()
+      ])
+      setPhotos(phData.photos || [])
+      setComments(cmData.comments || [])
+      setReactions(rcData.reactions || {})
+      setFavorites(fvData.favorites || [])
+      if (evData.name) setEventName(evData.name)
     } catch (e) { console.error(e) }
   }
 
-  const fetchComments = async () => {
+  const sendReaction = async (photoId, reaction) => {
+    setReactingId(photoId + reaction)
     try {
-      const res = await fetch(`/api/comments?eventId=${id}&table=${userTable}`)
+      const res = await fetch('/api/reactions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ eventId: id, photoId, nick, reaction })
+      })
       const data = await res.json()
-      setComments(data.comments || [])
+      if (data.success) {
+        setReactions(prev => {
+          const next = { ...prev }
+          if (!next[photoId]) next[photoId] = {}
+          if (!next[photoId][reaction]) next[photoId][reaction] = []
+          if (data.action === 'added') {
+            next[photoId][reaction] = [...next[photoId][reaction], nick]
+          } else {
+            next[photoId][reaction] = next[photoId][reaction].filter(n => n !== nick)
+          }
+          return next
+        })
+      }
     } catch (e) { console.error(e) }
+    setReactingId(null)
   }
 
   const downloadPhoto = async (photo) => {
@@ -114,20 +136,20 @@ export default function GuestPage() {
     if (touchStartX.current === null) return
     const diff = touchStartX.current - e.changedTouches[0].clientX
     if (Math.abs(diff) > 50) {
-      if (diff > 0) setLightboxIndex(i => Math.min(i + 1, photos.length - 1))
+      if (diff > 0) setLightboxIndex(i => Math.min(i + 1, visiblePhotos.length - 1))
       else setLightboxIndex(i => Math.max(i - 1, 0))
     }
     touchStartX.current = null
   }
 
   const openLightbox = (photo) => {
-    const idx = photos.findIndex(p => p.id === photo.id)
+    const idx = visiblePhotos.findIndex(p => p.id === photo.id)
     setLightboxIndex(idx)
     setLightbox(photo)
   }
 
   useEffect(() => {
-    if (lightbox) setLightbox(photos[lightboxIndex])
+    if (lightbox) setLightbox(visiblePhotos[lightboxIndex])
   }, [lightboxIndex])
 
   const handleFiles = (e) => {
@@ -161,7 +183,7 @@ export default function GuestPage() {
       setUploadOpen(false)
       setSelectedFiles([])
       setNewCap('')
-      fetchPhotos()
+      fetchAll()
     } catch (e) { alert('アップロードに失敗しました') }
     setUploading(false)
   }
@@ -190,71 +212,36 @@ export default function GuestPage() {
     return `🌸 ${userTable.replace('table', '')}卓`
   }
 
+  const getTotalReactions = (photoId) => {
+    const r = reactions[photoId] || {}
+    return Object.values(r).reduce((sum, arr) => sum + arr.length, 0)
+  }
+
+  const visiblePhotos = photos.filter(p =>
+    photoFilter === 'best' ? favorites.includes(p.id) : true
+  )
+
+  const bestCount = photos.filter(p => favorites.includes(p.id)).length
+
   if (!loggedIn) return (
-  <div style={{ minHeight: '100dvh', background: 'linear-gradient(160deg,#fff0f6,#f3e8ff)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, fontFamily: 'sans-serif' }}>
-    <div style={{ background: "white", borderRadius: 24, overflow: "hidden", boxShadow: "0 8px 32px rgba(233,30,140,0.12)", width: '100%', maxWidth: 360 }}>
-
-      {/* 上部装飾 */}
-      <div style={{ background: "linear-gradient(135deg,#e91e8c,#9c27b0)", padding: "32px 24px 24px", textAlign: "center", position: "relative" }}>
-        <div style={{ fontSize: 10, letterSpacing: "0.2em", color: "rgba(255,255,255,0.7)", marginBottom: 8 }}>WEDDING PHOTO</div>
-        <div style={{ fontSize: 48, marginBottom: 8 }}>💍</div>
-        <div style={{ fontSize: 22, fontWeight: "bold", color: "white", marginBottom: 4 }}>{tableLabel()} のアルバム</div>
-
-        {/* 波形装飾 */}
-        <div style={{ position: "absolute", bottom: -1, left: 0, right: 0, height: 20, background: "linear-gradient(160deg,#fff0f6,#f3e8ff)", borderRadius: "50% 50% 0 0 / 20px 20px 0 0" }} />
-      </div>
-
-      {/* 入力エリア */}
-      <div style={{ padding: "28px 24px 32px", textAlign: "center" }}>
-        <div style={{ fontSize: 14, color: "#888", marginBottom: 24 }}>ようこそ！お名前を教えてください</div>
-
-        <input
-          placeholder="ニックネームを入力"
-          value={nick}
-          onChange={e => setNick(e.target.value)}
+    <div style={{ minHeight: '100dvh', background: 'linear-gradient(160deg,#fff0f6,#f3e8ff)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, fontFamily: 'sans-serif' }}>
+      <div style={{ background: 'white', borderRadius: 24, padding: 28, width: '100%', maxWidth: 360, boxShadow: '0 8px 40px rgba(233,30,140,0.12)' }}>
+        <div style={{ textAlign: 'center', marginBottom: 24 }}>
+          <div style={{ fontSize: 48 }}>💍</div>
+          <h2 style={{ margin: '8px 0 4px', color: '#c2185b', fontSize: 22 }}>Wedding Photo</h2>
+          <p style={{ color: '#aaa', fontSize: 13, margin: 0 }}>{tableLabel()} のアルバム</p>
+        </div>
+        <input placeholder="ニックネームを入力" value={nick} onChange={e => setNick(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && nick.trim() && setLoggedIn(true)}
-          style={{
-            width: "100%",
-            padding: "14px",
-            borderRadius: 14,
-            border: "1.5px solid #e0bfff",
-            fontSize: 16,
-            boxSizing: "border-box",
-            marginBottom: 14,
-            outline: "none",
-            textAlign: "center",
-            background: "white"
-          }}
-        />
-
-        <button
-          onClick={() => nick.trim() && setLoggedIn(true)}
-          disabled={!nick.trim()}
-          style={{
-            width: "100%",
-            padding: 14,
-            borderRadius: 14,
-            border: "none",
-            background: nick.trim()
-              ? "linear-gradient(90deg,#e91e8c,#9c27b0)"
-              : "#ddd",
-            color: "white",
-            fontWeight: "bold",
-            fontSize: 16,
-            cursor: nick.trim() ? "pointer" : "default"
-          }}
-        >
+          style={{ width: '100%', padding: '13px 14px', borderRadius: 12, border: '1.5px solid #eee', fontSize: 16, boxSizing: 'border-box', marginBottom: 12, outline: 'none' }} />
+        <button onClick={() => nick.trim() && setLoggedIn(true)} disabled={!nick.trim()}
+          style={{ width: '100%', padding: 14, borderRadius: 12, border: 'none', background: nick.trim() ? 'linear-gradient(90deg,#e91e8c,#9c27b0)' : '#ddd', color: 'white', fontWeight: 'bold', fontSize: 16, cursor: nick.trim() ? 'pointer' : 'default' }}>
           入場する 🎊
         </button>
-
-        <div style={{ fontSize: 11, color: "#ccc", marginTop: 12 }}>
-          Googleアカウント不要です
-        </div>
+        <p style={{ color: '#bbb', fontSize: 12, textAlign: 'center', marginTop: 12 }}>Googleアカウント不要です</p>
       </div>
     </div>
-  </div>
-)
-
+  )
 
   return (
     <div style={{ minHeight: '100dvh', background: '#f5f5f5', fontFamily: 'sans-serif', paddingBottom: 80 }}>
@@ -270,6 +257,7 @@ export default function GuestPage() {
         </button>
       </div>
 
+      {/* メインタブ */}
       <div style={{ display: 'flex', background: 'white', borderBottom: '1px solid #eee' }}>
         {[
           { id: 'photos',   label: '📷 写真',  count: photos.length },
@@ -288,41 +276,89 @@ export default function GuestPage() {
       </div>
 
       {activeTab === 'photos' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, padding: '10px 10px 0' }}>
-          {photos.map(p => {
-            const b = VIS_BADGE[p.visibility] || VIS_BADGE.public
-            const isMine = p.nick === nick
-            return (
-              <div key={p.id} style={{ background: 'white', borderRadius: 14, overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.07)' }}>
-                <div style={{ position: 'relative' }} onClick={() => openLightbox(p)}>
-                  <img src={p.url} alt={p.caption} style={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover', display: 'block', cursor: 'pointer' }} />
-                  <span style={{ position: 'absolute', top: 5, right: 5, fontSize: 10, background: b.bg, color: b.color, padding: '2px 6px', borderRadius: 8, fontWeight: 'bold' }}>{b.label}</span>
-                  {isMine && (
-                    <button onClick={e => { e.stopPropagation(); setConfirmDelete(p) }}
-                      style={{ position: 'absolute', top: 5, left: 5, width: 24, height: 24, borderRadius: '50%', background: 'rgba(0,0,0,0.55)', border: 'none', color: 'white', fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      ×
-                    </button>
-                  )}
-                </div>
-                <div style={{ padding: '8px 10px 10px' }}>
-                  <div style={{ fontSize: 12, fontWeight: 'bold', color: '#222', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 2 }}>{p.caption}</div>
-                  <div style={{ fontSize: 11, color: '#aaa', marginBottom: 6 }}>{p.nick} · {p.ts}</div>
-                  <button onClick={() => downloadPhoto(p)} disabled={downloading === p.id}
-                    style={{ width: '100%', padding: '5px', borderRadius: 8, border: '1px solid #e91e8c', background: 'white', color: '#e91e8c', fontSize: 11, cursor: 'pointer', fontWeight: 'bold' }}>
-                    {downloading === p.id ? '⏳ 保存中...' : '⬇️ 保存'}
-                  </button>
-                </div>
+        <>
+          {/* 全部/ベスト写真フィルター */}
+          <div style={{ padding: '10px 12px 0', display: 'flex', gap: 8 }}>
+            <button onClick={() => setPhotoFilter('all')} style={{ padding: '6px 16px', borderRadius: 20, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: photoFilter === 'all' ? 'bold' : 'normal', background: photoFilter === 'all' ? '#555' : '#f0f0f0', color: photoFilter === 'all' ? 'white' : '#666' }}>
+              📷 すべて ({photos.length})
+            </button>
+            <button onClick={() => setPhotoFilter('best')} style={{ padding: '6px 16px', borderRadius: 20, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: photoFilter === 'best' ? 'bold' : 'normal', background: photoFilter === 'best' ? '#f9a825' : '#f0f0f0', color: photoFilter === 'best' ? 'white' : '#666', display: 'flex', alignItems: 'center', gap: 4 }}>
+              ⭐ ベスト写真 ({bestCount})
+            </button>
+          </div>
+
+          {/* ベスト写真バナー */}
+          {photoFilter === 'best' && bestCount > 0 && (
+            <div style={{ margin: '8px 12px 0', background: 'linear-gradient(90deg,#f9a825,#fb8c00)', borderRadius: 12, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 20 }}>⭐</span>
+              <div>
+                <div style={{ fontWeight: 'bold', fontSize: 13, color: 'white' }}>主催者が選んだベスト写真</div>
+                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.8)' }}>{bestCount}枚が選ばれています</div>
               </div>
-            )
-          })}
-          {photos.length === 0 && (
-            <div style={{ gridColumn: '1/-1', textAlign: 'center', padding: '48px 0', color: '#ccc' }}>
-              <div style={{ fontSize: 40 }}>📷</div>
-              <div style={{ marginTop: 8 }}>まだ写真がありません</div>
-              <div style={{ fontSize: 12, marginTop: 4 }}>30秒ごとに自動更新されます</div>
             </div>
           )}
-        </div>
+
+          {photoFilter === 'best' && bestCount === 0 && (
+            <div style={{ margin: '8px 12px 0', background: '#fff8e1', borderRadius: 12, padding: '10px 14px', fontSize: 13, color: '#795548', textAlign: 'center' }}>
+              ⭐ まだベスト写真が選ばれていません。素敵な写真を投稿しよう！
+            </div>
+          )}
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, padding: '10px 10px 0' }}>
+            {visiblePhotos.map(p => {
+              const b = VIS_BADGE[p.visibility] || VIS_BADGE.public
+              const isMine = p.nick === nick
+              const isBest = favorites.includes(p.id)
+              const photoReactions = reactions[p.id] || {}
+              const totalReactions = getTotalReactions(p.id)
+              return (
+                <div key={p.id} style={{ background: 'white', borderRadius: 14, overflow: 'hidden', boxShadow: isBest ? '0 2px 12px rgba(249,168,37,0.3)' : '0 2px 8px rgba(0,0,0,0.07)', border: isBest ? '2px solid #f9a825' : 'none' }}>
+                  <div style={{ position: 'relative' }} onClick={() => openLightbox(p)}>
+                    <img src={p.url} alt={p.caption} style={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover', display: 'block', cursor: 'pointer' }} />
+                    {isBest && <div style={{ position: 'absolute', top: 5, left: 5, background: '#f9a825', borderRadius: '50%', width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}>⭐</div>}
+                    <span style={{ position: 'absolute', top: 5, right: 5, fontSize: 10, background: b.bg, color: b.color, padding: '2px 6px', borderRadius: 8, fontWeight: 'bold' }}>{b.label}</span>
+                    {isMine && (
+                      <button onClick={e => { e.stopPropagation(); setConfirmDelete(p) }}
+                        style={{ position: 'absolute', bottom: 5, right: 5, width: 24, height: 24, borderRadius: '50%', background: 'rgba(0,0,0,0.55)', border: 'none', color: 'white', fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        ×
+                      </button>
+                    )}
+                  </div>
+                  <div style={{ padding: '8px 10px 10px' }}>
+                    <div style={{ fontSize: 12, fontWeight: 'bold', color: '#222', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 2 }}>{p.caption}</div>
+                    <div style={{ fontSize: 11, color: '#aaa', marginBottom: 6 }}>{p.nick} · {p.ts}</div>
+
+                    {/* リアクションボタン */}
+                    <div style={{ display: 'flex', gap: 4, marginBottom: 6, flexWrap: 'wrap' }}>
+                      {REACTIONS.map(r => {
+                        const count = (photoReactions[r] || []).length
+                        const reacted = (photoReactions[r] || []).includes(nick)
+                        return (
+                          <button key={r} onClick={() => sendReaction(p.id, r)} disabled={reactingId === p.id + r}
+                            style={{ padding: '3px 8px', borderRadius: 20, border: `1.5px solid ${reacted ? '#e91e8c' : '#eee'}`, background: reacted ? '#fff0f6' : 'white', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', gap: 3, fontWeight: reacted ? 'bold' : 'normal' }}>
+                            {r} {count > 0 && <span style={{ color: reacted ? '#e91e8c' : '#aaa', fontSize: 11 }}>{count}</span>}
+                          </button>
+                        )
+                      })}
+                    </div>
+
+                    <button onClick={() => downloadPhoto(p)} disabled={downloading === p.id}
+                      style={{ width: '100%', padding: '5px', borderRadius: 8, border: '1px solid #e91e8c', background: 'white', color: '#e91e8c', fontSize: 11, cursor: 'pointer', fontWeight: 'bold' }}>
+                      {downloading === p.id ? '⏳ 保存中...' : '⬇️ 保存'}
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+            {visiblePhotos.length === 0 && (
+              <div style={{ gridColumn: '1/-1', textAlign: 'center', padding: '48px 0', color: '#ccc' }}>
+                <div style={{ fontSize: 40 }}>📷</div>
+                <div style={{ marginTop: 8 }}>{photoFilter === 'best' ? 'ベスト写真はまだありません' : 'まだ写真がありません'}</div>
+                <div style={{ fontSize: 12, marginTop: 4 }}>30秒ごとに自動更新されます</div>
+              </div>
+            )}
+          </div>
+        </>
       )}
 
       {activeTab === 'comments' && (
@@ -362,29 +398,44 @@ export default function GuestPage() {
             )}
           </div>
           <div style={{ position: 'absolute', top: '50%', right: 12, transform: 'translateY(-50%)' }}>
-            {lightboxIndex < photos.length - 1 && (
+            {lightboxIndex < visiblePhotos.length - 1 && (
               <button onClick={() => setLightboxIndex(i => i + 1)}
                 style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', width: 40, height: 40, borderRadius: '50%', fontSize: 18, cursor: 'pointer' }}>›</button>
             )}
           </div>
-          <img src={lightbox.url} style={{ maxWidth: '100%', maxHeight: '65dvh', borderRadius: 12, objectFit: 'contain' }} />
-          <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, marginTop: 8 }}>{lightboxIndex + 1} / {photos.length}</div>
-          <div style={{ color: 'white', marginTop: 8, textAlign: 'center' }}>
+          <img src={lightbox.url} style={{ maxWidth: '100%', maxHeight: '60dvh', borderRadius: 12, objectFit: 'contain' }} />
+          <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, marginTop: 6 }}>{lightboxIndex + 1} / {visiblePhotos.length}</div>
+
+          {/* ライトボックス内リアクション */}
+          <div style={{ display: 'flex', gap: 8, marginTop: 10, justifyContent: 'center' }}>
+            {REACTIONS.map(r => {
+              const count = (reactions[lightbox?.id]?.[r] || []).length
+              const reacted = (reactions[lightbox?.id]?.[r] || []).includes(nick)
+              return (
+                <button key={r} onClick={() => sendReaction(lightbox.id, r)}
+                  style={{ padding: '8px 14px', borderRadius: 20, border: `1.5px solid ${reacted ? '#e91e8c' : 'rgba(255,255,255,0.3)'}`, background: reacted ? 'rgba(233,30,140,0.3)' : 'rgba(255,255,255,0.1)', cursor: 'pointer', fontSize: 16, color: 'white', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  {r} {count > 0 && <span style={{ fontSize: 13 }}>{count}</span>}
+                </button>
+              )
+            })}
+          </div>
+
+          <div style={{ color: 'white', marginTop: 10, textAlign: 'center' }}>
             <div style={{ fontSize: 15, fontWeight: 'bold' }}>{lightbox.caption}</div>
-            <div style={{ fontSize: 12, opacity: 0.6, marginTop: 4 }}>{lightbox.nick} · {lightbox.ts}</div>
-            <div style={{ marginTop: 12, display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <div style={{ fontSize: 12, opacity: 0.6, marginTop: 2 }}>{lightbox.nick} · {lightbox.ts}</div>
+            <div style={{ marginTop: 10, display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
               <button onClick={() => downloadPhoto(lightbox)} disabled={downloading === lightbox?.id}
-                style={{ background: 'rgba(255,255,255,0.15)', border: 'none', color: 'white', padding: '8px 18px', borderRadius: 20, cursor: 'pointer', fontSize: 13 }}>
+                style={{ background: 'rgba(255,255,255,0.15)', border: 'none', color: 'white', padding: '7px 16px', borderRadius: 20, cursor: 'pointer', fontSize: 13 }}>
                 {downloading === lightbox?.id ? '⏳' : '⬇️ 保存'}
               </button>
               {lightbox?.nick === nick && (
                 <button onClick={() => { setLightbox(null); setConfirmDelete(lightbox) }}
-                  style={{ background: 'rgba(220,50,50,0.5)', border: 'none', color: 'white', padding: '8px 18px', borderRadius: 20, cursor: 'pointer', fontSize: 13 }}>
+                  style={{ background: 'rgba(220,50,50,0.4)', border: 'none', color: 'white', padding: '7px 16px', borderRadius: 20, cursor: 'pointer', fontSize: 13 }}>
                   🗑️ 削除
                 </button>
               )}
               <button onClick={() => setLightbox(null)}
-                style={{ background: 'rgba(255,255,255,0.15)', border: 'none', color: 'white', padding: '8px 18px', borderRadius: 20, cursor: 'pointer', fontSize: 13 }}>
+                style={{ background: 'rgba(255,255,255,0.15)', border: 'none', color: 'white', padding: '7px 16px', borderRadius: 20, cursor: 'pointer', fontSize: 13 }}>
                 ✕ 閉じる
               </button>
             </div>
