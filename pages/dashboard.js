@@ -74,9 +74,7 @@ export default function Dashboard() {
       if (data.success) {
         setEvents(prev => prev.filter(e => e.id !== ev.id))
         setConfirmDeleteEvent(null)
-      } else {
-        alert(data.error || '削除に失敗しました')
-      }
+      } else { alert(data.error || '削除に失敗しました') }
     } catch (e) { alert('削除に失敗しました') }
     setDeletingEvent(null)
   }
@@ -129,19 +127,39 @@ export default function Dashboard() {
                 style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#aaa' }}>×</button>
             </div>
 
-            <input placeholder="結婚式名（例：田中 & 山本 Wedding）" value={newEvent.name}
+            <input
+              placeholder="結婚式名（例：田中 & 山本 Wedding）"
+              value={newEvent.name}
               onChange={e => setNewEvent(p => ({ ...p, name: e.target.value }))}
-              style={{ width: '100%', padding: '12px 14px', borderRadius: 12, border: '1.5px solid #eee', fontSize: 15, boxSizing: 'border-box', marginBottom: 10, outline: 'none' }} />
+              style={{ width: '100%', padding: '12px 14px', borderRadius: 12, border: '1.5px solid #eee', fontSize: 15, boxSizing: 'border-box', marginBottom: 10, outline: 'none' }}
+            />
 
-            <input type="date" value={newEvent.date}
-              onChange={e => setNewEvent(p => ({ ...p, date: e.target.value }))}
-              style={{ width: '100%', padding: '12px 14px', borderRadius: 12, border: '1.5px solid #eee', fontSize: 15, boxSizing: 'border-box', marginBottom: 10, outline: 'none' }} />
+            {/* 日付 ── スマホでもズレないようにtextで入力 */}
+            <div style={{ marginBottom: 10 }}>
+              <label style={{ fontSize: 13, color: '#666', display: 'block', marginBottom: 4 }}>
+                📅 結婚式の日付（写真投稿はこの日のみ可能）
+              </label>
+              <input
+                type="date"
+                value={newEvent.date}
+                onChange={e => setNewEvent(p => ({ ...p, date: e.target.value }))}
+                style={{ width: '100%', padding: '12px 14px', borderRadius: 12, border: '1.5px solid #eee', fontSize: 15, boxSizing: 'border-box', outline: 'none', appearance: 'none', WebkitAppearance: 'none', background: 'white' }}
+              />
+              {newEvent.date && (
+                <div style={{ marginTop: 6, fontSize: 12, color: '#9c27b0', background: '#f3e8ff', borderRadius: 8, padding: '5px 10px' }}>
+                  📅 {newEvent.date} のみ写真投稿が可能になります
+                </div>
+              )}
+            </div>
 
             <div style={{ marginBottom: 14 }}>
               <label style={{ fontSize: 13, color: '#666', display: 'block', marginBottom: 6 }}>卓数: {newEvent.tables}卓</label>
-              <input type="range" min="1" max="20" value={newEvent.tables}
+              <input
+                type="range" min="1" max="20"
+                value={newEvent.tables}
                 onChange={e => handleTableCount(Number(e.target.value))}
-                style={{ width: '100%', accentColor: '#e91e8c' }} />
+                style={{ width: '100%', accentColor: '#e91e8c' }}
+              />
             </div>
 
             {/* 卓名カスタマイズ */}
@@ -151,13 +169,16 @@ export default function Dashboard() {
                 {customTableNames.map((name, i) => (
                   <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <span style={{ fontSize: 11, color: TABLE_COLORS[i % 10], fontWeight: 'bold', whiteSpace: 'nowrap' }}>{i+1}卓</span>
-                    <input value={name} onChange={e => {
-                      const next = [...customTableNames]
-                      next[i] = e.target.value
-                      setCustomTableNames(next)
-                    }}
+                    <input
+                      value={name}
+                      onChange={e => {
+                        const next = [...customTableNames]
+                        next[i] = e.target.value
+                        setCustomTableNames(next)
+                      }}
                       placeholder={`${i+1}卓`}
-                      style={{ flex: 1, padding: '6px 8px', borderRadius: 8, border: '1.5px solid #e0bfff', fontSize: 13, outline: 'none', minWidth: 0 }} />
+                      style={{ flex: 1, padding: '6px 8px', borderRadius: 8, border: '1.5px solid #e0bfff', fontSize: 13, outline: 'none', minWidth: 0 }}
+                    />
                   </div>
                 ))}
               </div>
@@ -194,8 +215,6 @@ export default function Dashboard() {
           const tNames = getTableNames(ev)
           return (
             <div key={ev.id} style={{ background: 'white', borderRadius: 20, padding: 18, marginBottom: 14, boxShadow: '0 4px 20px rgba(0,0,0,0.06)' }}>
-
-              {/* イベントヘッダー */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
                 <div>
                   <div style={{ fontWeight: 'bold', fontSize: 17, color: '#222' }}>💍 {ev.name}</div>
@@ -220,7 +239,6 @@ export default function Dashboard() {
                 <span style={{ fontSize: 11, background: '#f4433618', color: '#f44336', padding: '3px 10px', borderRadius: 20, fontWeight: 'bold' }}>🎉 二次会</span>
               </div>
 
-              {/* ボタン */}
               <div style={{ display: 'flex', gap: 8 }}>
                 <button onClick={() => router.push(`/host/${ev.id}`)}
                   style={{ flex: 1, padding: '11px', borderRadius: 12, border: 'none', background: 'linear-gradient(90deg,#e91e8c,#9c27b0)', color: 'white', fontWeight: 'bold', fontSize: 13, cursor: 'pointer' }}>
@@ -236,7 +254,7 @@ export default function Dashboard() {
         })}
       </div>
 
-      {/* イベント削除確認ダイアログ */}
+      {/* イベント削除確認 */}
       {confirmDeleteEvent && (
         <div onClick={() => setConfirmDeleteEvent(null)}
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
