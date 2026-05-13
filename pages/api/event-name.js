@@ -21,7 +21,7 @@ export default async function handler(req, res) {
 
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.SPREADSHEET_ID,
-      range: 'Events!A2:G',
+      range: 'Events!A2:H',
     })
 
     const rows = response.data.values || []
@@ -31,9 +31,17 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'イベントが見つかりません' })
     }
 
-    res.json({ name: eventRow[2], date: eventRow[3] })
+    const tables = Number(eventRow[4]) || 4
+    const tableNames = eventRow[7] ? JSON.parse(eventRow[7]) : Array.from({ length: tables }, (_, i) => `${i + 1}卓`)
+
+    res.json({
+      name:       eventRow[2],
+      date:       eventRow[3],
+      tables,
+      tableNames,
+    })
   } catch (e) {
     console.error(e)
-    res.status(500).json({ error: 'イベント名の取得に失敗しました' })
+    res.status(500).json({ error: 'イベント情報の取得に失敗しました' })
   }
 }
