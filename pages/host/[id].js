@@ -21,6 +21,7 @@ export default function HostPage() {
   const [activeTab, setActiveTab] = useState('photos')
   const [activeGroup, setActiveGroup] = useState('all')
   const [photoFilter, setPhotoFilter] = useState('all')
+  const [rankingFilter, setRankingFilter] = useState('total')
   const [photos, setPhotos] = useState([])
   const [comments, setComments] = useState([])
   const [reactions, setReactions] = useState({})
@@ -62,8 +63,6 @@ export default function HostPage() {
       ])
 
       setEvent(evData)
-
-      // 卓名をevent-name APIから取得して反映
       const tableNames = evData.tableNames || Array.from({ length: evData.tables || 4 }, (_, i) => `${i + 1}卓`)
       const tableList = [
         { id: 'all',        name: '📋 全部',    color: '#555' },
@@ -77,7 +76,6 @@ export default function HostPage() {
       ]
       setTables(tableList)
       setCommentTable('public')
-
       setPhotos(phData.photos || [])
       setComments(cmData.comments || [])
       setReactions(rcData.reactions || {})
@@ -188,11 +186,6 @@ export default function HostPage() {
   const photoCount = (gid) => gid === 'all' ? photos.length : photos.filter(p => p.group === gid).length
   const bestCount = basePhotos.filter(p => favorites.includes(p.id)).length
 
-  const reactionRanking = [...photos]
-    .sort((a, b) => getReactionSummary(b.id).total - getReactionSummary(a.id).total)
-    .filter(p => getReactionSummary(p.id).total > 0)
-    .slice(0, 5)
-
   if (status === 'loading' || loading) return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'sans-serif' }}>
       <div style={{ textAlign: 'center', color: '#aaa' }}>
@@ -217,7 +210,6 @@ export default function HostPage() {
             ← 戻る
           </button>
         </div>
-        {/* 卓タブ */}
         <div style={{ display: 'flex', gap: 6, overflowX: 'auto', WebkitOverflowScrolling: 'touch', paddingBottom: 2 }}>
           {tables.map(t => (
             <button key={t.id} onClick={() => setActiveGroup(t.id)} style={{
@@ -286,8 +278,6 @@ export default function HostPage() {
                   <div style={{ padding: '8px 10px 10px' }}>
                     <div style={{ fontSize: 12, fontWeight: 'bold', color: '#222', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 2 }}>{p.caption}</div>
                     <div style={{ fontSize: 11, color: '#aaa', marginBottom: 6 }}>{p.nick} · {p.ts}</div>
-
-                    {/* リアクション表示（種類別＋総数） */}
                     {total > 0 && (
                       <div style={{ marginBottom: 6 }}>
                         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 3 }}>
@@ -301,10 +291,9 @@ export default function HostPage() {
                             )
                           })}
                         </div>
-                        <div style={{ fontSize: 11, color: '#e91e8c', fontWeight: 'bold' }}>合計 {total} リアクション</div>
+                        <div style={{ fontSize: 11, color: '#e91e8c', fontWeight: 'bold' }}>合計 {total}</div>
                       </div>
                     )}
-
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button onClick={() => toggleFavorite(p.id)} disabled={togglingFav === p.id}
                         style={{ flex: 1, padding: '5px', borderRadius: 8, border: `1.5px solid ${isFav ? '#f9a825' : '#eee'}`, background: isFav ? '#fff8e1' : 'white', color: isFav ? '#f9a825' : '#aaa', fontSize: 12, cursor: 'pointer', fontWeight: isFav ? 'bold' : 'normal' }}>
@@ -406,7 +395,6 @@ export default function HostPage() {
 
           {/* ランキングリスト */}
           {(() => {
-            // フィルターに応じてソート
             const ranked = [...photos]
               .map(p => {
                 const { total, detail } = getReactionSummary(p.id)
@@ -436,8 +424,6 @@ export default function HostPage() {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 'bold', fontSize: 13, color: '#222', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.caption}</div>
                     <div style={{ fontSize: 11, color: '#aaa', marginBottom: 4 }}>{p.nick}</div>
-
-                    {/* 種類別リアクション */}
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 2 }}>
                       {REACTIONS.map(r => {
                         const count = (p.detail[r] || []).length
@@ -456,17 +442,10 @@ export default function HostPage() {
                         )
                       })}
                     </div>
-
-                    {/* スコア表示 */}
                     <div style={{ fontSize: 12, color: '#f9a825', fontWeight: 'bold' }}>
-                      {rankingFilter === 'total'
-                        ? `合計 ${p.total} リアクション`
-                        : `${rankingFilter} ${p.score}件`
-                      }
+                      {rankingFilter === 'total' ? `合計 ${p.total}` : `${rankingFilter} ${p.score}件`}
                     </div>
                   </div>
-
-                  {/* お気に入りボタン */}
                   <button onClick={e => { e.stopPropagation(); toggleFavorite(p.id) }} disabled={togglingFav === p.id}
                     style={{ background: isFav ? '#fff8e1' : 'white', border: `1.5px solid ${isFav ? '#f9a825' : '#eee'}`, color: isFav ? '#f9a825' : '#aaa', padding: '5px 10px', borderRadius: 8, fontSize: 12, cursor: 'pointer', fontWeight: isFav ? 'bold' : 'normal', flexShrink: 0 }}>
                     {isFav ? '⭐' : '☆'}
@@ -479,12 +458,11 @@ export default function HostPage() {
           {/* ベスト写真まとめ */}
           {favorites.length > 0 && (
             <div style={{ marginTop: 16 }}>
-              <div style={{ fontSize: 13, fontWeight: 'bold', color: '#555', marginBottom: 10 }}>⭐ 選んだベスト写真（{favorites.length}枚）</div>
+              <div style={{ fontSize: 13, fontWeight: 'bold', color: '#555', marginBottom: 10 }}>⭐ ベスト写真（{favorites.length}枚）</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 6 }}>
                 {photos.filter(p => favorites.includes(p.id)).map(p => (
                   <div key={p.id} onClick={() => openLightbox(p)} style={{ borderRadius: 10, overflow: 'hidden', cursor: 'pointer', border: '2px solid #f9a825', position: 'relative' }}>
                     <img src={p.url} style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', display: 'block' }} />
-                    {/* リアクション合計 */}
                     {getReactionSummary(p.id).total > 0 && (
                       <div style={{ position: 'absolute', bottom: 3, right: 3, background: 'rgba(0,0,0,0.6)', color: 'white', fontSize: 10, borderRadius: 8, padding: '1px 5px' }}>
                         {getReactionSummary(p.id).total}
@@ -497,6 +475,7 @@ export default function HostPage() {
           )}
         </div>
       )}
+
       {/* Lightbox */}
       {lightbox && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.95)', zIndex: 200, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 16 }}
@@ -515,8 +494,6 @@ export default function HostPage() {
           </div>
           <img src={lightbox.url} style={{ maxWidth: '100%', maxHeight: '60dvh', borderRadius: 12, objectFit: 'contain' }} />
           <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, marginTop: 6 }}>{lightboxIndex + 1} / {visiblePhotos.length}</div>
-
-          {/* リアクション（種類別＋総数） */}
           <div style={{ marginTop: 10, textAlign: 'center' }}>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginBottom: 4 }}>
               {REACTIONS.map(r => {
@@ -533,7 +510,6 @@ export default function HostPage() {
               return total > 0 ? <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>合計 {total} リアクション</div> : null
             })()}
           </div>
-
           <div style={{ color: 'white', marginTop: 8, textAlign: 'center' }}>
             <div style={{ fontSize: 15, fontWeight: 'bold' }}>{lightbox.caption}</div>
             <div style={{ fontSize: 12, opacity: 0.6, marginTop: 2 }}>{lightbox.nick} · {lightbox.ts}</div>
