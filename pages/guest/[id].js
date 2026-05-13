@@ -9,6 +9,7 @@ const VIS_BADGE = {
   host:   { label: '🔒 主催者', bg: '#fce4ec', color: '#b71c1c' },
 }
 const REACTIONS = ['❤️', '👏', '😆']
+const TABLE_COLORS = ['#9c27b0','#43a047','#fb8c00','#00acc1','#f44336','#3f51b5','#009688']
 
 export default function GuestPage() {
   const router = useRouter()
@@ -16,13 +17,13 @@ export default function GuestPage() {
   const [nick, setNick] = useState('')
   const [loggedIn, setLoggedIn] = useState(false)
   const [userTable, setUserTable] = useState(table || 'table1')
-  const [eventName, setEventName] = useState('')
+  const [eventInfo, setEventInfo] = useState(null)
   const [photos, setPhotos] = useState([])
   const [comments, setComments] = useState([])
   const [reactions, setReactions] = useState({})
   const [favorites, setFavorites] = useState([])
   const [activeTab, setActiveTab] = useState('photos')
-  const [photoFilter, setPhotoFilter] = useState('all') // all | best
+  const [photoFilter, setPhotoFilter] = useState('all')
   const [lightbox, setLightbox] = useState(null)
   const [lightboxIndex, setLightboxIndex] = useState(0)
   const [uploadOpen, setUploadOpen] = useState(false)
@@ -66,8 +67,25 @@ export default function GuestPage() {
       setComments(cmData.comments || [])
       setReactions(rcData.reactions || {})
       setFavorites(fvData.favorites || [])
-      if (evData.name) setEventName(evData.name)
+      setEventInfo(evData)
     } catch (e) { console.error(e) }
+  }
+
+  // 今日が結婚式当日かチェック
+  const isWeddingDay = () => {
+    if (!eventInfo?.date) return true // 取得前はtrueにしておく
+    const today = new Date().toISOString().split('T')[0]
+    return today === eventInfo.date
+  }
+
+  // 卓のラベルを取得
+  const tableLabel = () => {
+    if (!eventInfo) return ''
+    if (userTable === 'public') return '📢 全体公開'
+    if (userTable === 'afterparty') return '🎉 二次会'
+    const idx = parseInt(userTable.replace('table', '')) - 1
+    const name = eventInfo.tableNames?.[idx] || `${idx + 1}卓`
+    return `🌸 ${name}`
   }
 
   const sendReaction = async (photoId, reaction) => {
@@ -99,8 +117,8 @@ export default function GuestPage() {
   const downloadPhoto = async (photo) => {
     setDownloading(photo.id)
     try {
-      const response = await fetch(photo.url)
-      const blob = await response.blob()
+      const res = await fetch(photo.url)
+      const blob = await res.blob()
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -124,9 +142,7 @@ export default function GuestPage() {
         setPhotos(prev => prev.filter(p => p.id !== photo.id))
         setConfirmDelete(null)
         if (lightbox?.id === photo.id) setLightbox(null)
-      } else {
-        alert(data.error || '削除できませんでした')
-      }
+      } else { alert(data.error || '削除できませんでした') }
     } catch (e) { alert('削除に失敗しました') }
     setDeleting(null)
   }
@@ -206,30 +222,26 @@ export default function GuestPage() {
     setPosting(false)
   }
 
-  const tableLabel = () => {
-    if (userTable === 'public') return '📢 全体公開'
-    if (userTable === 'afterparty') return '🎉 二次会'
-    return `🌸 ${userTable.replace('table', '')}卓`
-  }
-
-  const getTotalReactions = (photoId) => {
+  // リアクション集計
+  const getReactionSummary = (photoId) => {
     const r = reactions[photoId] || {}
-    return Object.values(r).reduce((sum, arr) => sum + arr.length, 0)
+    const total = Object.values(r).reduce((sum, arr) => sum + arr.length, 0)
+    return { total, detail: r }
   }
 
   const visiblePhotos = photos.filter(p =>
     photoFilter === 'best' ? favorites.includes(p.id) : true
   )
-
   const bestCount = photos.filter(p => favorites.includes(p.id)).length
 
+  // ログイン画面
   if (!loggedIn) return (
     <div style={{ minHeight: '100dvh', background: 'linear-gradient(160deg,#fff0f6,#f3e8ff)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, fontFamily: 'sans-serif' }}>
       <div style={{ background: 'white', borderRadius: 24, padding: 28, width: '100%', maxWidth: 360, boxShadow: '0 8px 40px rgba(233,30,140,0.12)' }}>
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
           <div style={{ fontSize: 48 }}>💍</div>
           <h2 style={{ margin: '8px 0 4px', color: '#c2185b', fontSize: 22 }}>Wedding Photo</h2>
-          <p style={{ color: '#aaa', fontSize: 13, margin: 0 }}>{tableLabel()} のアルバム</p>
+          <p style={{ color: '#aaa', fontSize: 13, margin: 0 }}>{tableLabel() || 'アルバム'}</p>
         </div>
         <input placeholder="ニックネームを入力" value={nick} onChange={e => setNick(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && nick.trim() && setLoggedIn(true)}
@@ -246,18 +258,32 @@ export default function GuestPage() {
   return (
     <div style={{ minHeight: '100dvh', background: '#f5f5f5', fontFamily: 'sans-serif', paddingBottom: 80 }}>
 
+      {/* Header */}
       <div style={{ background: 'linear-gradient(90deg,#e91e8c,#9c27b0)', color: 'white', padding: '12px 16px', position: 'sticky', top: 0, zIndex: 100, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <div style={{ fontWeight: 'bold', fontSize: 17 }}>💍 {eventName || 'Wedding Photo'}</div>
+          <div style={{ fontWeight: 'bold', fontSize: 17 }}>💍 {eventInfo?.name || 'Wedding Photo'}</div>
           <div style={{ fontSize: 11, opacity: 0.8 }}>{nick} · {tableLabel()}</div>
         </div>
-        <button onClick={() => setUploadOpen(true)}
-          style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', padding: '7px 14px', borderRadius: 10, fontSize: 13, fontWeight: 'bold', cursor: 'pointer' }}>
-          ＋ 追加
-        </button>
+        {/* 当日のみ追加ボタンを表示 */}
+        {isWeddingDay()
+          ? <button onClick={() => setUploadOpen(true)}
+              style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', padding: '7px 14px', borderRadius: 10, fontSize: 13, fontWeight: 'bold', cursor: 'pointer' }}>
+              ＋ 追加
+            </button>
+          : <div style={{ background: 'rgba(255,255,255,0.15)', padding: '6px 10px', borderRadius: 10, fontSize: 11, opacity: 0.8 }}>
+              📅 {eventInfo?.date}
+            </div>
+        }
       </div>
 
-      {/* メインタブ */}
+      {/* 結婚式前のお知らせ */}
+      {!isWeddingDay() && eventInfo?.date && (
+        <div style={{ background: '#fff8e1', padding: '10px 16px', fontSize: 13, color: '#795548', textAlign: 'center', borderBottom: '1px solid #ffe082' }}>
+          📅 写真の投稿は結婚式当日（{eventInfo.date}）のみ可能です
+        </div>
+      )}
+
+      {/* タブ */}
       <div style={{ display: 'flex', background: 'white', borderBottom: '1px solid #eee' }}>
         {[
           { id: 'photos',   label: '📷 写真',  count: photos.length },
@@ -275,19 +301,18 @@ export default function GuestPage() {
         ))}
       </div>
 
+      {/* 写真タブ */}
       {activeTab === 'photos' && (
         <>
-          {/* 全部/ベスト写真フィルター */}
           <div style={{ padding: '10px 12px 0', display: 'flex', gap: 8 }}>
             <button onClick={() => setPhotoFilter('all')} style={{ padding: '6px 16px', borderRadius: 20, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: photoFilter === 'all' ? 'bold' : 'normal', background: photoFilter === 'all' ? '#555' : '#f0f0f0', color: photoFilter === 'all' ? 'white' : '#666' }}>
               📷 すべて ({photos.length})
             </button>
-            <button onClick={() => setPhotoFilter('best')} style={{ padding: '6px 16px', borderRadius: 20, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: photoFilter === 'best' ? 'bold' : 'normal', background: photoFilter === 'best' ? '#f9a825' : '#f0f0f0', color: photoFilter === 'best' ? 'white' : '#666', display: 'flex', alignItems: 'center', gap: 4 }}>
-              ⭐ ベスト写真 ({bestCount})
+            <button onClick={() => setPhotoFilter('best')} style={{ padding: '6px 16px', borderRadius: 20, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: photoFilter === 'best' ? 'bold' : 'normal', background: photoFilter === 'best' ? '#f9a825' : '#f0f0f0', color: photoFilter === 'best' ? 'white' : '#666' }}>
+              ⭐ ベスト ({bestCount})
             </button>
           </div>
 
-          {/* ベスト写真バナー */}
           {photoFilter === 'best' && bestCount > 0 && (
             <div style={{ margin: '8px 12px 0', background: 'linear-gradient(90deg,#f9a825,#fb8c00)', borderRadius: 12, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: 20 }}>⭐</span>
@@ -309,8 +334,7 @@ export default function GuestPage() {
               const b = VIS_BADGE[p.visibility] || VIS_BADGE.public
               const isMine = p.nick === nick
               const isBest = favorites.includes(p.id)
-              const photoReactions = reactions[p.id] || {}
-              const totalReactions = getTotalReactions(p.id)
+              const { total, detail } = getReactionSummary(p.id)
               return (
                 <div key={p.id} style={{ background: 'white', borderRadius: 14, overflow: 'hidden', boxShadow: isBest ? '0 2px 12px rgba(249,168,37,0.3)' : '0 2px 8px rgba(0,0,0,0.07)', border: isBest ? '2px solid #f9a825' : 'none' }}>
                   <div style={{ position: 'relative' }} onClick={() => openLightbox(p)}>
@@ -329,18 +353,26 @@ export default function GuestPage() {
                     <div style={{ fontSize: 11, color: '#aaa', marginBottom: 6 }}>{p.nick} · {p.ts}</div>
 
                     {/* リアクションボタン */}
-                    <div style={{ display: 'flex', gap: 4, marginBottom: 6, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
                       {REACTIONS.map(r => {
-                        const count = (photoReactions[r] || []).length
-                        const reacted = (photoReactions[r] || []).includes(nick)
+                        const count = (detail[r] || []).length
+                        const reacted = (detail[r] || []).includes(nick)
                         return (
                           <button key={r} onClick={() => sendReaction(p.id, r)} disabled={reactingId === p.id + r}
-                            style={{ padding: '3px 8px', borderRadius: 20, border: `1.5px solid ${reacted ? '#e91e8c' : '#eee'}`, background: reacted ? '#fff0f6' : 'white', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', gap: 3, fontWeight: reacted ? 'bold' : 'normal' }}>
-                            {r} {count > 0 && <span style={{ color: reacted ? '#e91e8c' : '#aaa', fontSize: 11 }}>{count}</span>}
+                            style={{ flex: 1, padding: '4px 2px', borderRadius: 20, border: `1.5px solid ${reacted ? '#e91e8c' : '#eee'}`, background: reacted ? '#fff0f6' : 'white', cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
+                            {r}
+                            {count > 0 && <span style={{ color: reacted ? '#e91e8c' : '#aaa', fontSize: 10, fontWeight: 'bold' }}>{count}</span>}
                           </button>
                         )
                       })}
                     </div>
+
+                    {/* 総リアクション数 */}
+                    {total > 0 && (
+                      <div style={{ fontSize: 11, color: '#e91e8c', fontWeight: 'bold', marginBottom: 4, textAlign: 'center' }}>
+                        合計 {total} リアクション
+                      </div>
+                    )}
 
                     <button onClick={() => downloadPhoto(p)} disabled={downloading === p.id}
                       style={{ width: '100%', padding: '5px', borderRadius: 8, border: '1px solid #e91e8c', background: 'white', color: '#e91e8c', fontSize: 11, cursor: 'pointer', fontWeight: 'bold' }}>
@@ -361,6 +393,7 @@ export default function GuestPage() {
         </>
       )}
 
+      {/* 掲示板タブ */}
       {activeTab === 'comments' && (
         <div style={{ padding: '12px 14px' }}>
           <div style={{ background: 'white', borderRadius: 16, padding: 14, marginBottom: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
@@ -406,21 +439,30 @@ export default function GuestPage() {
           <img src={lightbox.url} style={{ maxWidth: '100%', maxHeight: '60dvh', borderRadius: 12, objectFit: 'contain' }} />
           <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, marginTop: 6 }}>{lightboxIndex + 1} / {visiblePhotos.length}</div>
 
-          {/* ライトボックス内リアクション */}
-          <div style={{ display: 'flex', gap: 8, marginTop: 10, justifyContent: 'center' }}>
-            {REACTIONS.map(r => {
-              const count = (reactions[lightbox?.id]?.[r] || []).length
-              const reacted = (reactions[lightbox?.id]?.[r] || []).includes(nick)
-              return (
-                <button key={r} onClick={() => sendReaction(lightbox.id, r)}
-                  style={{ padding: '8px 14px', borderRadius: 20, border: `1.5px solid ${reacted ? '#e91e8c' : 'rgba(255,255,255,0.3)'}`, background: reacted ? 'rgba(233,30,140,0.3)' : 'rgba(255,255,255,0.1)', cursor: 'pointer', fontSize: 16, color: 'white', display: 'flex', alignItems: 'center', gap: 4 }}>
-                  {r} {count > 0 && <span style={{ fontSize: 13 }}>{count}</span>}
-                </button>
-              )
-            })}
+          {/* ライトボックス内リアクション（総数＋種類別） */}
+          <div style={{ marginTop: 10, textAlign: 'center' }}>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginBottom: 6 }}>
+              {REACTIONS.map(r => {
+                const count = (reactions[lightbox?.id]?.[r] || []).length
+                const reacted = (reactions[lightbox?.id]?.[r] || []).includes(nick)
+                return (
+                  <button key={r} onClick={() => sendReaction(lightbox.id, r)}
+                    style={{ padding: '8px 14px', borderRadius: 20, border: `1.5px solid ${reacted ? '#e91e8c' : 'rgba(255,255,255,0.3)'}`, background: reacted ? 'rgba(233,30,140,0.3)' : 'rgba(255,255,255,0.1)', cursor: 'pointer', fontSize: 16, color: 'white', display: 'flex', alignItems: 'center', gap: 4 }}>
+                    {r} {count > 0 && <span style={{ fontSize: 13, fontWeight: 'bold' }}>{count}</span>}
+                  </button>
+                )
+              })}
+            </div>
+            {/* 総リアクション数 */}
+            {(() => {
+              const total = REACTIONS.reduce((sum, r) => sum + (reactions[lightbox?.id]?.[r]?.length || 0), 0)
+              return total > 0 ? (
+                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>合計 {total} リアクション</div>
+              ) : null
+            })()}
           </div>
 
-          <div style={{ color: 'white', marginTop: 10, textAlign: 'center' }}>
+          <div style={{ color: 'white', marginTop: 8, textAlign: 'center' }}>
             <div style={{ fontSize: 15, fontWeight: 'bold' }}>{lightbox.caption}</div>
             <div style={{ fontSize: 12, opacity: 0.6, marginTop: 2 }}>{lightbox.nick} · {lightbox.ts}</div>
             <div style={{ marginTop: 10, display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
@@ -443,7 +485,7 @@ export default function GuestPage() {
         </div>
       )}
 
-      {/* 削除確認ダイアログ */}
+      {/* 削除確認 */}
       {confirmDelete && (
         <div onClick={() => setConfirmDelete(null)}
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
