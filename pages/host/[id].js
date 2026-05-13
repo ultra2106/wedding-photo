@@ -497,3 +497,92 @@ export default function HostPage() {
           )}
         </div>
       )}
+
+      {/* Lightbox */}
+      {lightbox && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.95)', zIndex: 200, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+          onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+          <div style={{ position: 'absolute', top: '50%', left: 12, transform: 'translateY(-50%)' }}>
+            {lightboxIndex > 0 && (
+              <button onClick={() => setLightboxIndex(i => i - 1)}
+                style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', width: 40, height: 40, borderRadius: '50%', fontSize: 18, cursor: 'pointer' }}>‹</button>
+            )}
+          </div>
+          <div style={{ position: 'absolute', top: '50%', right: 12, transform: 'translateY(-50%)' }}>
+            {lightboxIndex < visiblePhotos.length - 1 && (
+              <button onClick={() => setLightboxIndex(i => i + 1)}
+                style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', width: 40, height: 40, borderRadius: '50%', fontSize: 18, cursor: 'pointer' }}>›</button>
+            )}
+          </div>
+          <img src={lightbox.url} style={{ maxWidth: '100%', maxHeight: '60dvh', borderRadius: 12, objectFit: 'contain' }} />
+          <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, marginTop: 6 }}>{lightboxIndex + 1} / {visiblePhotos.length}</div>
+
+          {/* リアクション（種類別＋総数） */}
+          <div style={{ marginTop: 10, textAlign: 'center' }}>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginBottom: 4 }}>
+              {REACTIONS.map(r => {
+                const count = (reactions[lightbox?.id]?.[r] || []).length
+                return (
+                  <span key={r} style={{ padding: '6px 12px', borderRadius: 20, background: 'rgba(255,255,255,0.1)', color: 'white', fontSize: 14, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    {r} {count > 0 && <span style={{ fontSize: 12, fontWeight: 'bold' }}>{count}</span>}
+                  </span>
+                )
+              })}
+            </div>
+            {(() => {
+              const total = REACTIONS.reduce((sum, r) => sum + (reactions[lightbox?.id]?.[r]?.length || 0), 0)
+              return total > 0 ? <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>合計 {total} リアクション</div> : null
+            })()}
+          </div>
+
+          <div style={{ color: 'white', marginTop: 8, textAlign: 'center' }}>
+            <div style={{ fontSize: 15, fontWeight: 'bold' }}>{lightbox.caption}</div>
+            <div style={{ fontSize: 12, opacity: 0.6, marginTop: 2 }}>{lightbox.nick} · {lightbox.ts}</div>
+            <div style={{ marginTop: 10, display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+              <button onClick={() => toggleFavorite(lightbox.id)} disabled={togglingFav === lightbox?.id}
+                style={{ background: favorites.includes(lightbox?.id) ? 'rgba(249,168,37,0.4)' : 'rgba(255,255,255,0.15)', border: 'none', color: 'white', padding: '7px 16px', borderRadius: 20, cursor: 'pointer', fontSize: 13 }}>
+                {favorites.includes(lightbox?.id) ? '⭐ 解除' : '☆ ベスト'}
+              </button>
+              <button onClick={() => downloadPhoto(lightbox)} disabled={downloading === lightbox?.id}
+                style={{ background: 'rgba(255,255,255,0.15)', border: 'none', color: 'white', padding: '7px 16px', borderRadius: 20, cursor: 'pointer', fontSize: 13 }}>
+                {downloading === lightbox?.id ? '⏳' : '⬇️'}
+              </button>
+              <button onClick={() => { setLightbox(null); setConfirmDelete(lightbox) }}
+                style={{ background: 'rgba(220,50,50,0.4)', border: 'none', color: 'white', padding: '7px 16px', borderRadius: 20, cursor: 'pointer', fontSize: 13 }}>
+                🗑️
+              </button>
+              <button onClick={() => setLightbox(null)}
+                style={{ background: 'rgba(255,255,255,0.15)', border: 'none', color: 'white', padding: '7px 16px', borderRadius: 20, cursor: 'pointer', fontSize: 13 }}>
+                ✕
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 削除確認 */}
+      {confirmDelete && (
+        <div onClick={() => setConfirmDelete(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: 'white', borderRadius: 20, padding: 24, width: '100%', maxWidth: 300, textAlign: 'center' }}>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>🗑️</div>
+            <div style={{ fontWeight: 'bold', fontSize: 16, marginBottom: 6 }}>この写真を削除しますか？</div>
+            <div style={{ fontSize: 12, color: '#aaa', marginBottom: 16 }}>ドライブのゴミ箱に移動します</div>
+            <img src={confirmDelete.url} style={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover', borderRadius: 10, marginBottom: 16 }} />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => setConfirmDelete(null)}
+                style={{ flex: 1, padding: 12, borderRadius: 10, border: '1.5px solid #eee', background: 'white', fontSize: 14, cursor: 'pointer' }}>
+                キャンセル
+              </button>
+              <button onClick={() => deletePhoto(confirmDelete)} disabled={deleting === confirmDelete?.id}
+                style={{ flex: 1, padding: 12, borderRadius: 10, border: 'none', background: '#e53935', color: 'white', fontWeight: 'bold', fontSize: 14, cursor: 'pointer' }}>
+                {deleting === confirmDelete?.id ? '削除中...' : '削除する'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
