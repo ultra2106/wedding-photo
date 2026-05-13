@@ -10,6 +10,7 @@ const VIS_BADGE = {
   host:   { label: '🔒 主催者', bg: '#fce4ec', color: '#b71c1c' },
 }
 const REACTIONS = ['❤️', '👏', '😆']
+const TABLE_COLORS = ['#9c27b0','#43a047','#fb8c00','#00acc1','#f44336','#3f51b5','#009688']
 
 export default function HostPage() {
   const { data: session, status } = useSession()
@@ -50,7 +51,7 @@ export default function HostPage() {
     setLoading(true)
     try {
       const [evRes, phRes, cmRes, rcRes, fvRes] = await Promise.all([
-        fetch('/api/events'),
+        fetch(`/api/event-name?eventId=${id}`),
         fetch(`/api/photos?eventId=${id}&role=host`),
         fetch(`/api/comments?eventId=${id}&table=all`),
         fetch(`/api/reactions?eventId=${id}`),
@@ -60,22 +61,23 @@ export default function HostPage() {
         evRes.json(), phRes.json(), cmRes.json(), rcRes.json(), fvRes.json()
       ])
 
-      const ev = evData.events?.find(e => e.id === id)
-      if (ev) {
-        setEvent(ev)
-        const tableList = [
-          { id: 'all',        name: '📋 全部',    color: '#555' },
-          { id: 'public',     name: '📢 全体公開', color: '#e91e8c' },
-          ...Array.from({ length: ev.tables }, (_, i) => ({
-            id: `table${i + 1}`,
-            name: ev.tableNames ? `🌸 ${ev.tableNames[i]}` : `🌸 ${i + 1}卓`,
-            color: ['#9c27b0','#43a047','#fb8c00','#00acc1','#f44336','#3f51b5','#009688'][i % 7]
-          })),
-          { id: 'afterparty', name: '🎉 二次会', color: '#f44336' },
-        ]
-        setTables(tableList)
-        setCommentTable('public')
-      }
+      setEvent(evData)
+
+      // 卓名をevent-name APIから取得して反映
+      const tableNames = evData.tableNames || Array.from({ length: evData.tables || 4 }, (_, i) => `${i + 1}卓`)
+      const tableList = [
+        { id: 'all',        name: '📋 全部',    color: '#555' },
+        { id: 'public',     name: '📢 全体公開', color: '#e91e8c' },
+        ...tableNames.map((n, i) => ({
+          id: `table${i + 1}`,
+          name: `🌸 ${n}`,
+          color: TABLE_COLORS[i % TABLE_COLORS.length]
+        })),
+        { id: 'afterparty', name: '🎉 二次会', color: '#f44336' },
+      ]
+      setTables(tableList)
+      setCommentTable('public')
+
       setPhotos(phData.photos || [])
       setComments(cmData.comments || [])
       setReactions(rcData.reactions || {})
@@ -95,9 +97,7 @@ export default function HostPage() {
       const data = await res.json()
       if (data.success) {
         setFavorites(prev =>
-          data.action === 'added'
-            ? [...prev, photoId]
-            : prev.filter(f => f !== photoId)
+          data.action === 'added' ? [...prev, photoId] : prev.filter(f => f !== photoId)
         )
       }
     } catch (e) { console.error(e) }
@@ -107,8 +107,8 @@ export default function HostPage() {
   const downloadPhoto = async (photo) => {
     setDownloading(photo.id)
     try {
-      const response = await fetch(photo.url)
-      const blob = await response.blob()
+      const res = await fetch(photo.url)
+      const blob = await res.blob()
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -176,9 +176,10 @@ export default function HostPage() {
     setPosting(false)
   }
 
-  const getTotalReactions = (photoId) => {
+  const getReactionSummary = (photoId) => {
     const r = reactions[photoId] || {}
-    return Object.values(r).reduce((sum, arr) => sum + arr.length, 0)
+    const total = Object.values(r).reduce((sum, arr) => sum + arr.length, 0)
+    return { total, detail: r }
   }
 
   const basePhotos = photos.filter(p => activeGroup === 'all' || p.group === activeGroup)
@@ -187,10 +188,9 @@ export default function HostPage() {
   const photoCount = (gid) => gid === 'all' ? photos.length : photos.filter(p => p.group === gid).length
   const bestCount = basePhotos.filter(p => favorites.includes(p.id)).length
 
-  // リアクションランキング（上位5件）
   const reactionRanking = [...photos]
-    .sort((a, b) => getTotalReactions(b.id) - getTotalReactions(a.id))
-    .filter(p => getTotalReactions(p.id) > 0)
+    .sort((a, b) => getReactionSummary(b.id).total - getReactionSummary(a.id).total)
+    .filter(p => getReactionSummary(p.id).total > 0)
     .slice(0, 5)
 
   if (status === 'loading' || loading) return (
@@ -210,7 +210,7 @@ export default function HostPage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
           <div>
             <div style={{ fontWeight: 'bold', fontSize: 17 }}>💍 {event?.name || 'Wedding Photo'}</div>
-            <div style={{ fontSize: 11, opacity: 0.8 }}>👑 主催者モード · 全{photos.length}枚 · ⭐{favorites.length}件</div>
+            <div style={{ fontSize: 11, opacity: 0.8 }}>👑 主催者 · 全{photos.length}枚 · ⭐{favorites.length}件</div>
           </div>
           <button onClick={() => router.push('/dashboard')}
             style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', padding: '6px 12px', borderRadius: 10, cursor: 'pointer', fontSize: 12 }}>
@@ -271,11 +271,12 @@ export default function HostPage() {
             {visiblePhotos.map(p => {
               const b = VIS_BADGE[p.visibility] || VIS_BADGE.public
               const isFav = favorites.includes(p.id)
-              const totalReactions = getTotalReactions(p.id)
+              const { total, detail } = getReactionSummary(p.id)
               return (
                 <div key={p.id} style={{ background: 'white', borderRadius: 14, overflow: 'hidden', boxShadow: isFav ? '0 2px 12px rgba(249,168,37,0.3)' : '0 2px 8px rgba(0,0,0,0.07)', border: isFav ? '2px solid #f9a825' : 'none' }}>
                   <div style={{ position: 'relative' }} onClick={() => openLightbox(p)}>
                     <img src={p.url} alt={p.caption} style={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover', display: 'block', cursor: 'pointer' }} />
+                    {isFav && <div style={{ position: 'absolute', top: 5, left: 5, background: '#f9a825', borderRadius: '50%', width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}>⭐</div>}
                     <span style={{ position: 'absolute', top: 5, right: 5, fontSize: 10, background: b.bg, color: b.color, padding: '2px 6px', borderRadius: 8, fontWeight: 'bold' }}>{b.label}</span>
                     <button onClick={e => { e.stopPropagation(); setConfirmDelete(p) }}
                       style={{ position: 'absolute', bottom: 5, right: 5, width: 24, height: 24, borderRadius: '50%', background: 'rgba(0,0,0,0.55)', border: 'none', color: 'white', fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -286,23 +287,25 @@ export default function HostPage() {
                     <div style={{ fontSize: 12, fontWeight: 'bold', color: '#222', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 2 }}>{p.caption}</div>
                     <div style={{ fontSize: 11, color: '#aaa', marginBottom: 6 }}>{p.nick} · {p.ts}</div>
 
-                    {/* リアクション表示 */}
-                    {totalReactions > 0 && (
-                      <div style={{ display: 'flex', gap: 4, marginBottom: 6, flexWrap: 'wrap' }}>
-                        {REACTIONS.map(r => {
-                          const count = (reactions[p.id]?.[r] || []).length
-                          if (count === 0) return null
-                          return (
-                            <span key={r} style={{ fontSize: 11, background: '#f5f5f5', borderRadius: 20, padding: '2px 7px', color: '#666' }}>
-                              {r} {count}
-                            </span>
-                          )
-                        })}
+                    {/* リアクション表示（種類別＋総数） */}
+                    {total > 0 && (
+                      <div style={{ marginBottom: 6 }}>
+                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 3 }}>
+                          {REACTIONS.map(r => {
+                            const count = (detail[r] || []).length
+                            if (count === 0) return null
+                            return (
+                              <span key={r} style={{ fontSize: 11, background: '#f5f5f5', borderRadius: 20, padding: '2px 7px', color: '#666', display: 'flex', alignItems: 'center', gap: 2 }}>
+                                {r} <span style={{ fontWeight: 'bold' }}>{count}</span>
+                              </span>
+                            )
+                          })}
+                        </div>
+                        <div style={{ fontSize: 11, color: '#e91e8c', fontWeight: 'bold' }}>合計 {total} リアクション</div>
                       </div>
                     )}
 
                     <div style={{ display: 'flex', gap: 6 }}>
-                      {/* お気に入りボタン */}
                       <button onClick={() => toggleFavorite(p.id)} disabled={togglingFav === p.id}
                         style={{ flex: 1, padding: '5px', borderRadius: 8, border: `1.5px solid ${isFav ? '#f9a825' : '#eee'}`, background: isFav ? '#fff8e1' : 'white', color: isFav ? '#f9a825' : '#aaa', fontSize: 12, cursor: 'pointer', fontWeight: isFav ? 'bold' : 'normal' }}>
                         {isFav ? '⭐ ベスト' : '☆ 選ぶ'}
@@ -371,7 +374,7 @@ export default function HostPage() {
         <div style={{ padding: '12px 14px' }}>
           <div style={{ background: 'linear-gradient(90deg,#f9a825,#fb8c00)', borderRadius: 14, padding: '12px 16px', marginBottom: 14, color: 'white' }}>
             <div style={{ fontWeight: 'bold', fontSize: 15 }}>🏆 リアクションランキング</div>
-            <div style={{ fontSize: 12, opacity: 0.9, marginTop: 2 }}>リアクションが多い人気写真TOP5</div>
+            <div style={{ fontSize: 12, opacity: 0.9, marginTop: 2 }}>人気写真TOP5</div>
           </div>
 
           {reactionRanking.length === 0 ? (
@@ -381,7 +384,7 @@ export default function HostPage() {
             </div>
           ) : reactionRanking.map((p, idx) => {
             const isFav = favorites.includes(p.id)
-            const photoReactions = reactions[p.id] || {}
+            const { total, detail } = getReactionSummary(p.id)
             const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣']
             return (
               <div key={p.id} onClick={() => openLightbox(p)} style={{ background: 'white', borderRadius: 16, padding: 14, marginBottom: 10, boxShadow: '0 2px 8px rgba(0,0,0,0.06)', cursor: 'pointer', display: 'flex', gap: 12, alignItems: 'center', border: isFav ? '2px solid #f9a825' : 'none' }}>
@@ -390,17 +393,20 @@ export default function HostPage() {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 'bold', fontSize: 13, color: '#222', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.caption}</div>
                   <div style={{ fontSize: 11, color: '#aaa', marginBottom: 4 }}>{p.nick}</div>
-                  <div style={{ display: 'flex', gap: 6 }}>
+                  {/* 種類別リアクション */}
+                  <div style={{ display: 'flex', gap: 6, marginBottom: 2 }}>
                     {REACTIONS.map(r => {
-                      const count = (photoReactions[r] || []).length
+                      const count = (detail[r] || []).length
                       if (count === 0) return null
                       return (
-                        <span key={r} style={{ fontSize: 12, background: '#f5f5f5', borderRadius: 20, padding: '2px 8px', color: '#666' }}>
-                          {r} {count}
+                        <span key={r} style={{ fontSize: 12, background: '#f5f5f5', borderRadius: 20, padding: '2px 8px', color: '#666', display: 'flex', alignItems: 'center', gap: 2 }}>
+                          {r} <span style={{ fontWeight: 'bold' }}>{count}</span>
                         </span>
                       )
                     })}
                   </div>
+                  {/* 総数 */}
+                  <div style={{ fontSize: 11, color: '#e91e8c', fontWeight: 'bold' }}>合計 {total}</div>
                 </div>
                 <button onClick={e => { e.stopPropagation(); toggleFavorite(p.id) }} disabled={togglingFav === p.id}
                   style={{ background: isFav ? '#fff8e1' : 'white', border: `1.5px solid ${isFav ? '#f9a825' : '#eee'}`, color: isFav ? '#f9a825' : '#aaa', padding: '5px 10px', borderRadius: 8, fontSize: 12, cursor: 'pointer', fontWeight: isFav ? 'bold' : 'normal', flexShrink: 0 }}>
@@ -410,10 +416,9 @@ export default function HostPage() {
             )
           })}
 
-          {/* ベスト写真まとめ */}
           {favorites.length > 0 && (
             <div style={{ marginTop: 8 }}>
-              <div style={{ fontSize: 13, fontWeight: 'bold', color: '#555', marginBottom: 10 }}>⭐ 選んだベスト写真（{favorites.length}枚）</div>
+              <div style={{ fontSize: 13, fontWeight: 'bold', color: '#555', marginBottom: 10 }}>⭐ ベスト写真（{favorites.length}枚）</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 6 }}>
                 {photos.filter(p => favorites.includes(p.id)).map(p => (
                   <div key={p.id} onClick={() => openLightbox(p)} style={{ borderRadius: 10, overflow: 'hidden', cursor: 'pointer', border: '2px solid #f9a825' }}>
@@ -445,37 +450,43 @@ export default function HostPage() {
           <img src={lightbox.url} style={{ maxWidth: '100%', maxHeight: '60dvh', borderRadius: 12, objectFit: 'contain' }} />
           <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, marginTop: 6 }}>{lightboxIndex + 1} / {visiblePhotos.length}</div>
 
-          {/* リアクション */}
-          <div style={{ display: 'flex', gap: 8, marginTop: 10, justifyContent: 'center' }}>
-            {REACTIONS.map(r => {
-              const count = (reactions[lightbox?.id]?.[r] || []).length
-              return (
-                <span key={r} style={{ padding: '6px 12px', borderRadius: 20, background: 'rgba(255,255,255,0.1)', color: 'white', fontSize: 14, display: 'flex', alignItems: 'center', gap: 4 }}>
-                  {r} {count > 0 && <span style={{ fontSize: 12 }}>{count}</span>}
-                </span>
-              )
-            })}
+          {/* リアクション（種類別＋総数） */}
+          <div style={{ marginTop: 10, textAlign: 'center' }}>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginBottom: 4 }}>
+              {REACTIONS.map(r => {
+                const count = (reactions[lightbox?.id]?.[r] || []).length
+                return (
+                  <span key={r} style={{ padding: '6px 12px', borderRadius: 20, background: 'rgba(255,255,255,0.1)', color: 'white', fontSize: 14, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    {r} {count > 0 && <span style={{ fontSize: 12, fontWeight: 'bold' }}>{count}</span>}
+                  </span>
+                )
+              })}
+            </div>
+            {(() => {
+              const total = REACTIONS.reduce((sum, r) => sum + (reactions[lightbox?.id]?.[r]?.length || 0), 0)
+              return total > 0 ? <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>合計 {total} リアクション</div> : null
+            })()}
           </div>
 
-          <div style={{ color: 'white', marginTop: 10, textAlign: 'center' }}>
+          <div style={{ color: 'white', marginTop: 8, textAlign: 'center' }}>
             <div style={{ fontSize: 15, fontWeight: 'bold' }}>{lightbox.caption}</div>
             <div style={{ fontSize: 12, opacity: 0.6, marginTop: 2 }}>{lightbox.nick} · {lightbox.ts}</div>
             <div style={{ marginTop: 10, display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
               <button onClick={() => toggleFavorite(lightbox.id)} disabled={togglingFav === lightbox?.id}
                 style={{ background: favorites.includes(lightbox?.id) ? 'rgba(249,168,37,0.4)' : 'rgba(255,255,255,0.15)', border: 'none', color: 'white', padding: '7px 16px', borderRadius: 20, cursor: 'pointer', fontSize: 13 }}>
-                {favorites.includes(lightbox?.id) ? '⭐ ベスト解除' : '☆ ベストに選ぶ'}
+                {favorites.includes(lightbox?.id) ? '⭐ 解除' : '☆ ベスト'}
               </button>
               <button onClick={() => downloadPhoto(lightbox)} disabled={downloading === lightbox?.id}
                 style={{ background: 'rgba(255,255,255,0.15)', border: 'none', color: 'white', padding: '7px 16px', borderRadius: 20, cursor: 'pointer', fontSize: 13 }}>
-                {downloading === lightbox?.id ? '⏳' : '⬇️ 保存'}
+                {downloading === lightbox?.id ? '⏳' : '⬇️'}
               </button>
               <button onClick={() => { setLightbox(null); setConfirmDelete(lightbox) }}
                 style={{ background: 'rgba(220,50,50,0.4)', border: 'none', color: 'white', padding: '7px 16px', borderRadius: 20, cursor: 'pointer', fontSize: 13 }}>
-                🗑️ 削除
+                🗑️
               </button>
               <button onClick={() => setLightbox(null)}
                 style={{ background: 'rgba(255,255,255,0.15)', border: 'none', color: 'white', padding: '7px 16px', borderRadius: 20, cursor: 'pointer', fontSize: 13 }}>
-                ✕ 閉じる
+                ✕
               </button>
             </div>
           </div>
@@ -490,7 +501,7 @@ export default function HostPage() {
             style={{ background: 'white', borderRadius: 20, padding: 24, width: '100%', maxWidth: 300, textAlign: 'center' }}>
             <div style={{ fontSize: 32, marginBottom: 8 }}>🗑️</div>
             <div style={{ fontWeight: 'bold', fontSize: 16, marginBottom: 6 }}>この写真を削除しますか？</div>
-            <div style={{ fontSize: 12, color: '#aaa', marginBottom: 16 }}>削除するとドライブのゴミ箱に移動します</div>
+            <div style={{ fontSize: 12, color: '#aaa', marginBottom: 16 }}>ドライブのゴミ箱に移動します</div>
             <img src={confirmDelete.url} style={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover', borderRadius: 10, marginBottom: 16 }} />
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={() => setConfirmDelete(null)}
