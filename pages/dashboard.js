@@ -6,6 +6,13 @@ import { useState, useEffect } from 'react'
 
 const TABLE_COLORS = ['#9c27b0','#43a047','#fb8c00','#00acc1','#f44336','#3f51b5','#009688','#e91e8c','#795548','#607d8b']
 
+// 時間の選択肢を生成（00:00〜23:30を30分刻み）
+const TIME_OPTIONS = Array.from({ length: 48 }, (_, i) => {
+  const h = Math.floor(i / 2).toString().padStart(2, '0')
+  const m = i % 2 === 0 ? '00' : '30'
+  return `${h}:${m}`
+})
+
 export default function Dashboard() {
   const { data: session, status } = useSession()
   const router = useRouter()
@@ -15,7 +22,11 @@ export default function Dashboard() {
   const [creating, setCreating] = useState(false)
   const [confirmDeleteEvent, setConfirmDeleteEvent] = useState(null)
   const [deletingEvent, setDeletingEvent] = useState(null)
-  const [newEvent, setNewEvent] = useState({ name: '', date: '', tables: 4 })
+  const [editingEvent, setEditingEvent] = useState(null) // 編集中のイベント
+  const [editTableNames, setEditTableNames] = useState([])
+  const [editStartTime, setEditStartTime] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [newEvent, setNewEvent] = useState({ name: '', date: '', tables: 4, startTime: '' })
   const [customTableNames, setCustomTableNames] = useState(['1卓','2卓','3卓','4卓'])
 
   useEffect(() => {
@@ -49,13 +60,19 @@ export default function Dashboard() {
       const res = await fetch('/api/events', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...newEvent, tableNames: customTableNames })
+        body: JSON.stringify({
+          name: newEvent.name,
+          date: newEvent.date,
+          tables: newEvent.tables,
+          tableNames: customTableNames,
+          startTime: newEvent.startTime || '',
+        })
       })
       const data = await res.json()
       if (data.success) {
         setEvents(prev => [data.event, ...prev])
         setShowCreate(false)
-        setNewEvent({ name: '', date: '', tables: 4 })
+        setNewEvent({ name: '', date: '', tables: 4, startTime: '' })
         setCustomTableNames(['1卓','2卓','3卓','4卓'])
       }
     } catch (e) { alert('作成に失敗しました') }
@@ -79,10 +96,41 @@ export default function Dashboard() {
     setDeletingEvent(null)
   }
 
-  const getTableNames = (ev) => {
-    if (ev.tableNames) return ev.tableNames
-    return Array.from({ length: ev.tables }, (_, i) => `${i + 1}卓`)
+  // 編集モーダルを開く
+  const openEdit = (ev) => {
+    setEditingEvent(ev)
+    setEditTableNames(ev.tableNames || Array.from({ length: ev.tables }, (_, i) => `${i + 1}卓`))
+    setEditStartTime(ev.startTime || '')
   }
+
+  // 卓名・時間を保存
+  const saveEdit = async () => {
+    if (!editingEvent) return
+    setSaving(true)
+    try {
+      const res = await fetch('/api/events', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          eventId: editingEvent.id,
+          tableNames: editTableNames,
+          startTime: editStartTime,
+        })
+      })
+      const data = await res.json()
+      if (data.success) {
+        setEvents(prev => prev.map(ev =>
+          ev.id === editingEvent.id
+            ? { ...ev, tableNames: editTableNames, startTime: editStartTime }
+            : ev
+        ))
+        setEditingEvent(null)
+      } else { alert(data.error || '保存に失敗しました') }
+    } catch (e) { alert('保存に失敗しました') }
+    setSaving(false)
+  }
+
+  const getTableNames = (ev) => ev.tableNames || Array.from({ length: ev.tables }, (_, i) => `${i + 1}卓`)
 
   if (status === 'loading') return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'sans-serif' }}>
@@ -127,39 +175,49 @@ export default function Dashboard() {
                 style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#aaa' }}>×</button>
             </div>
 
-            <input
-              placeholder="結婚式名（例：田中 & 山本 Wedding）"
-              value={newEvent.name}
+            <input placeholder="結婚式名（例：田中 & 山本 Wedding）" value={newEvent.name}
               onChange={e => setNewEvent(p => ({ ...p, name: e.target.value }))}
-              style={{ width: '100%', padding: '12px 14px', borderRadius: 12, border: '1.5px solid #eee', fontSize: 15, boxSizing: 'border-box', marginBottom: 10, outline: 'none' }}
-            />
+              style={{ width: '100%', padding: '12px 14px', borderRadius: 12, border: '1.5px solid #eee', fontSize: 15, boxSizing: 'border-box', marginBottom: 10, outline: 'none' }} />
 
-            {/* 日付 ── スマホでもズレないようにtextで入力 */}
+            {/* 日付 */}
             <div style={{ marginBottom: 10 }}>
-              <label style={{ fontSize: 13, color: '#666', display: 'block', marginBottom: 4 }}>
-                📅 結婚式の日付（写真投稿はこの日のみ可能）
-              </label>
-              <input
-                type="date"
-                value={newEvent.date}
+              <label style={{ fontSize: 13, color: '#666', display: 'block', marginBottom: 4 }}>📅 結婚式の日付</label>
+              <input type="date" value={newEvent.date}
                 onChange={e => setNewEvent(p => ({ ...p, date: e.target.value }))}
-                style={{ width: '100%', padding: '12px 14px', borderRadius: 12, border: '1.5px solid #eee', fontSize: 15, boxSizing: 'border-box', outline: 'none', appearance: 'none', WebkitAppearance: 'none', background: 'white' }}
-              />
-              {newEvent.date && (
-                <div style={{ marginTop: 6, fontSize: 12, color: '#9c27b0', background: '#f3e8ff', borderRadius: 8, padding: '5px 10px' }}>
-                  📅 {newEvent.date} のみ写真投稿が可能になります
+                style={{ width: '100%', padding: '12px 14px', borderRadius: 12, border: '1.5px solid #eee', fontSize: 15, boxSizing: 'border-box', outline: 'none', background: 'white' }} />
+            </div>
+
+            {/* 写真投稿開始時間 */}
+            <div style={{ marginBottom: 14, background: '#faf4ff', borderRadius: 12, padding: 12 }}>
+              <label style={{ fontSize: 13, fontWeight: 'bold', color: '#7b1fa2', display: 'block', marginBottom: 8 }}>
+                🕐 写真投稿の開始時間（任意）
+              </label>
+              <select value={newEvent.startTime}
+                onChange={e => setNewEvent(p => ({ ...p, startTime: e.target.value }))}
+                style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1.5px solid #e0bfff', fontSize: 14, boxSizing: 'border-box', background: 'white', outline: 'none' }}>
+                <option value="">設定しない（当日終日投稿可能）</option>
+                {TIME_OPTIONS.map(t => (
+                  <option key={t} value={t}>{t} 以降</option>
+                ))}
+              </select>
+              {newEvent.startTime && (
+                <div style={{ fontSize: 12, color: '#9c27b0', marginTop: 6 }}>
+                  📅 {newEvent.date || '当日'} の {newEvent.startTime} から写真投稿が可能になります
+                </div>
+              )}
+              {!newEvent.startTime && (
+                <div style={{ fontSize: 11, color: '#aaa', marginTop: 6 }}>
+                  設定しない場合は当日中いつでも投稿できます
                 </div>
               )}
             </div>
 
+            {/* 卓数 */}
             <div style={{ marginBottom: 14 }}>
               <label style={{ fontSize: 13, color: '#666', display: 'block', marginBottom: 6 }}>卓数: {newEvent.tables}卓</label>
-              <input
-                type="range" min="1" max="20"
-                value={newEvent.tables}
+              <input type="range" min="1" max="20" value={newEvent.tables}
                 onChange={e => handleTableCount(Number(e.target.value))}
-                style={{ width: '100%', accentColor: '#e91e8c' }}
-              />
+                style={{ width: '100%', accentColor: '#e91e8c' }} />
             </div>
 
             {/* 卓名カスタマイズ */}
@@ -169,16 +227,13 @@ export default function Dashboard() {
                 {customTableNames.map((name, i) => (
                   <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <span style={{ fontSize: 11, color: TABLE_COLORS[i % 10], fontWeight: 'bold', whiteSpace: 'nowrap' }}>{i+1}卓</span>
-                    <input
-                      value={name}
-                      onChange={e => {
-                        const next = [...customTableNames]
-                        next[i] = e.target.value
-                        setCustomTableNames(next)
-                      }}
+                    <input value={name} onChange={e => {
+                      const next = [...customTableNames]
+                      next[i] = e.target.value
+                      setCustomTableNames(next)
+                    }}
                       placeholder={`${i+1}卓`}
-                      style={{ flex: 1, padding: '6px 8px', borderRadius: 8, border: '1.5px solid #e0bfff', fontSize: 13, outline: 'none', minWidth: 0 }}
-                    />
+                      style={{ flex: 1, padding: '6px 8px', borderRadius: 8, border: '1.5px solid #e0bfff', fontSize: 13, outline: 'none', minWidth: 0 }} />
                   </div>
                 ))}
               </div>
@@ -209,18 +264,21 @@ export default function Dashboard() {
           <div style={{ textAlign: 'center', padding: '40px 20px', color: '#ccc', background: 'white', borderRadius: 20 }}>
             <div style={{ fontSize: 40, marginBottom: 8 }}>📭</div>
             <div style={{ fontSize: 15 }}>まだイベントがありません</div>
-            <div style={{ fontSize: 13, marginTop: 4 }}>上のボタンから作成してください</div>
           </div>
         ) : events.map(ev => {
           const tNames = getTableNames(ev)
           return (
             <div key={ev.id} style={{ background: 'white', borderRadius: 20, padding: 18, marginBottom: 14, boxShadow: '0 4px 20px rgba(0,0,0,0.06)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                 <div>
                   <div style={{ fontWeight: 'bold', fontSize: 17, color: '#222' }}>💍 {ev.name}</div>
-                  <div style={{ fontSize: 12, color: '#aaa', marginTop: 3 }}>{ev.date} · {ev.tables}卓</div>
+                  <div style={{ fontSize: 12, color: '#aaa', marginTop: 3 }}>
+                    {ev.date}
+                    {ev.startTime && <span style={{ marginLeft: 6, color: '#9c27b0', fontWeight: 'bold' }}>🕐 {ev.startTime}〜</span>}
+                    · {ev.tables}卓
+                  </div>
                 </div>
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: 6 }}>
                   <span style={{ background: '#f3e8ff', color: '#9c27b0', fontSize: 11, padding: '4px 10px', borderRadius: 10, fontWeight: 'bold' }}>開催予定</span>
                   <button onClick={() => setConfirmDeleteEvent(ev)}
                     style={{ background: '#fff0f0', border: 'none', color: '#e53935', width: 30, height: 30, borderRadius: '50%', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -230,7 +288,7 @@ export default function Dashboard() {
               </div>
 
               {/* 卓名タグ */}
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
                 {tNames.map((n, i) => (
                   <span key={i} style={{ fontSize: 11, background: TABLE_COLORS[i % 10] + '18', color: TABLE_COLORS[i % 10], padding: '3px 10px', borderRadius: 20, fontWeight: 'bold' }}>
                     🌸 {n}
@@ -246,13 +304,78 @@ export default function Dashboard() {
                 </button>
                 <button onClick={() => router.push(`/qr/${ev.id}`)}
                   style={{ flex: 1, padding: '11px', borderRadius: 12, border: '1.5px solid #e91e8c', background: 'white', color: '#e91e8c', fontWeight: 'bold', fontSize: 13, cursor: 'pointer' }}>
-                  📱 QRコード
+                  📱 QR
+                </button>
+                <button onClick={() => openEdit(ev)}
+                  style={{ flex: 1, padding: '11px', borderRadius: 12, border: '1.5px solid #9c27b0', background: 'white', color: '#9c27b0', fontWeight: 'bold', fontSize: 13, cursor: 'pointer' }}>
+                  ✏️ 編集
                 </button>
               </div>
             </div>
           )
         })}
       </div>
+
+      {/* ── 編集モーダル ── */}
+      {editingEvent && (
+        <div onClick={() => setEditingEvent(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 400, display: 'flex', alignItems: 'flex-end' }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: 'white', borderRadius: '24px 24px 0 0', padding: '20px 20px 40px', width: '100%', boxSizing: 'border-box', maxHeight: '85dvh', overflowY: 'auto' }}>
+            <div style={{ width: 36, height: 4, background: '#ddd', borderRadius: 2, margin: '0 auto 16px' }} />
+            <h3 style={{ margin: '0 0 4px', fontSize: 17 }}>✏️ イベント設定を編集</h3>
+            <div style={{ fontSize: 13, color: '#aaa', marginBottom: 16 }}>💍 {editingEvent.name}</div>
+
+            {/* 投稿開始時間の編集 */}
+            <div style={{ background: '#faf4ff', borderRadius: 12, padding: 14, marginBottom: 16 }}>
+              <label style={{ fontSize: 13, fontWeight: 'bold', color: '#7b1fa2', display: 'block', marginBottom: 8 }}>
+                🕐 写真投稿の開始時間
+              </label>
+              <select value={editStartTime} onChange={e => setEditStartTime(e.target.value)}
+                style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1.5px solid #e0bfff', fontSize: 14, boxSizing: 'border-box', background: 'white', outline: 'none' }}>
+                <option value="">設定しない（当日終日投稿可能）</option>
+                {TIME_OPTIONS.map(t => (
+                  <option key={t} value={t}>{t} 以降</option>
+                ))}
+              </select>
+              {editStartTime && (
+                <div style={{ fontSize: 12, color: '#9c27b0', marginTop: 6 }}>
+                  📅 {editingEvent.date} の {editStartTime} から写真投稿が可能になります
+                </div>
+              )}
+            </div>
+
+            {/* 卓名の編集 */}
+            <div style={{ background: '#faf4ff', borderRadius: 12, padding: 14, marginBottom: 16 }}>
+              <div style={{ fontSize: 13, fontWeight: 'bold', color: '#7b1fa2', marginBottom: 10 }}>🌸 卓名を変更</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                {editTableNames.map((name, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 11, color: TABLE_COLORS[i % 10], fontWeight: 'bold', whiteSpace: 'nowrap' }}>{i+1}卓</span>
+                    <input value={name} onChange={e => {
+                      const next = [...editTableNames]
+                      next[i] = e.target.value
+                      setEditTableNames(next)
+                    }}
+                      style={{ flex: 1, padding: '6px 8px', borderRadius: 8, border: '1.5px solid #e0bfff', fontSize: 13, outline: 'none', minWidth: 0 }} />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => setEditingEvent(null)}
+                style={{ flex: 1, padding: 14, borderRadius: 12, border: '1.5px solid #eee', background: 'white', fontSize: 15, cursor: 'pointer' }}>
+                キャンセル
+              </button>
+              <button onClick={saveEdit} disabled={saving}
+                style={{ flex: 2, padding: 14, borderRadius: 12, border: 'none', background: 'linear-gradient(90deg,#e91e8c,#9c27b0)', color: 'white', fontWeight: 'bold', fontSize: 15, cursor: 'pointer' }}>
+                {saving ? '保存中...' : '💾 保存する'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* イベント削除確認 */}
       {confirmDeleteEvent && (
