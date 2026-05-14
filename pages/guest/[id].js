@@ -9,7 +9,6 @@ const VIS_BADGE = {
   host:   { label: '🔒 主催者', bg: '#fce4ec', color: '#b71c1c' },
 }
 const REACTIONS = ['❤️', '👏', '😆']
-const TABLE_COLORS = ['#9c27b0','#43a047','#fb8c00','#00acc1','#f44336','#3f51b5','#009688']
 
 export default function GuestPage() {
   const router = useRouter()
@@ -71,14 +70,41 @@ export default function GuestPage() {
     } catch (e) { console.error(e) }
   }
 
-  // 今日が結婚式当日かチェック
-  const isWeddingDay = () => {
-    if (!eventInfo?.date) return true // 取得前はtrueにしておく
-    const today = new Date().toISOString().split('T')[0]
-    return today === eventInfo.date
+  // 投稿可能かどうかチェック
+  const canUpload = () => {
+    if (!eventInfo?.date) return true
+    const now = new Date()
+    const today = now.toISOString().split('T')[0]
+
+    // 日付が違う場合はNG
+    if (today !== eventInfo.date) return false
+
+    // 開始時間が設定されている場合は時間チェック
+    if (eventInfo.startTime) {
+      const [startHour, startMin] = eventInfo.startTime.split(':').map(Number)
+      const startMinutes = startHour * 60 + startMin
+      const nowMinutes = now.getHours() * 60 + now.getMinutes()
+      return nowMinutes >= startMinutes
+    }
+
+    return true
   }
 
-  // 卓のラベルを取得
+  // 投稿不可の理由を返す
+  const uploadBlockReason = () => {
+    if (!eventInfo?.date) return null
+    const now = new Date()
+    const today = now.toISOString().split('T')[0]
+
+    if (today !== eventInfo.date) {
+      return `📅 写真の投稿は結婚式当日（${eventInfo.date}）のみ可能です`
+    }
+    if (eventInfo.startTime && !canUpload()) {
+      return `🕐 写真の投稿は ${eventInfo.startTime} から開始されます`
+    }
+    return null
+  }
+
   const tableLabel = () => {
     if (!eventInfo) return ''
     if (userTable === 'public') return '📢 全体公開'
@@ -222,7 +248,6 @@ export default function GuestPage() {
     setPosting(false)
   }
 
-  // リアクション集計
   const getReactionSummary = (photoId) => {
     const r = reactions[photoId] || {}
     const total = Object.values(r).reduce((sum, arr) => sum + arr.length, 0)
@@ -233,8 +258,8 @@ export default function GuestPage() {
     photoFilter === 'best' ? favorites.includes(p.id) : true
   )
   const bestCount = photos.filter(p => favorites.includes(p.id)).length
+  const blockReason = uploadBlockReason()
 
-  // ログイン画面
   if (!loggedIn) return (
     <div style={{ minHeight: '100dvh', background: 'linear-gradient(160deg,#fff0f6,#f3e8ff)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, fontFamily: 'sans-serif' }}>
       <div style={{ background: 'white', borderRadius: 24, padding: 28, width: '100%', maxWidth: 360, boxShadow: '0 8px 40px rgba(233,30,140,0.12)' }}>
@@ -258,32 +283,29 @@ export default function GuestPage() {
   return (
     <div style={{ minHeight: '100dvh', background: '#f5f5f5', fontFamily: 'sans-serif', paddingBottom: 80 }}>
 
-      {/* Header */}
       <div style={{ background: 'linear-gradient(90deg,#e91e8c,#9c27b0)', color: 'white', padding: '12px 16px', position: 'sticky', top: 0, zIndex: 100, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <div style={{ fontWeight: 'bold', fontSize: 17 }}>💍 {eventInfo?.name || 'Wedding Photo'}</div>
           <div style={{ fontSize: 11, opacity: 0.8 }}>{nick} · {tableLabel()}</div>
         </div>
-        {/* 当日のみ追加ボタンを表示 */}
-        {isWeddingDay()
+        {canUpload()
           ? <button onClick={() => setUploadOpen(true)}
               style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', padding: '7px 14px', borderRadius: 10, fontSize: 13, fontWeight: 'bold', cursor: 'pointer' }}>
               ＋ 追加
             </button>
-          : <div style={{ background: 'rgba(255,255,255,0.15)', padding: '6px 10px', borderRadius: 10, fontSize: 11, opacity: 0.8 }}>
-              📅 {eventInfo?.date}
+          : <div style={{ background: 'rgba(255,255,255,0.15)', padding: '6px 10px', borderRadius: 10, fontSize: 10, opacity: 0.9, textAlign: 'right', maxWidth: 120 }}>
+              {eventInfo?.startTime ? `🕐 ${eventInfo.startTime}〜` : `📅 ${eventInfo?.date}`}
             </div>
         }
       </div>
 
-      {/* 結婚式前のお知らせ */}
-      {!isWeddingDay() && eventInfo?.date && (
+      {/* 投稿制限バナー */}
+      {blockReason && (
         <div style={{ background: '#fff8e1', padding: '10px 16px', fontSize: 13, color: '#795548', textAlign: 'center', borderBottom: '1px solid #ffe082' }}>
-          📅 写真の投稿は結婚式当日（{eventInfo.date}）のみ可能です
+          {blockReason}
         </div>
       )}
 
-      {/* タブ */}
       <div style={{ display: 'flex', background: 'white', borderBottom: '1px solid #eee' }}>
         {[
           { id: 'photos',   label: '📷 写真',  count: photos.length },
@@ -301,7 +323,6 @@ export default function GuestPage() {
         ))}
       </div>
 
-      {/* 写真タブ */}
       {activeTab === 'photos' && (
         <>
           <div style={{ padding: '10px 12px 0', display: 'flex', gap: 8 }}>
@@ -351,8 +372,6 @@ export default function GuestPage() {
                   <div style={{ padding: '8px 10px 10px' }}>
                     <div style={{ fontSize: 12, fontWeight: 'bold', color: '#222', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 2 }}>{p.caption}</div>
                     <div style={{ fontSize: 11, color: '#aaa', marginBottom: 6 }}>{p.nick} · {p.ts}</div>
-
-                    {/* リアクションボタン */}
                     <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
                       {REACTIONS.map(r => {
                         const count = (detail[r] || []).length
@@ -366,14 +385,11 @@ export default function GuestPage() {
                         )
                       })}
                     </div>
-
-                    {/* 総リアクション数 */}
                     {total > 0 && (
                       <div style={{ fontSize: 11, color: '#e91e8c', fontWeight: 'bold', marginBottom: 4, textAlign: 'center' }}>
                         合計 {total} リアクション
                       </div>
                     )}
-
                     <button onClick={() => downloadPhoto(p)} disabled={downloading === p.id}
                       style={{ width: '100%', padding: '5px', borderRadius: 8, border: '1px solid #e91e8c', background: 'white', color: '#e91e8c', fontSize: 11, cursor: 'pointer', fontWeight: 'bold' }}>
                       {downloading === p.id ? '⏳ 保存中...' : '⬇️ 保存'}
@@ -393,7 +409,6 @@ export default function GuestPage() {
         </>
       )}
 
-      {/* 掲示板タブ */}
       {activeTab === 'comments' && (
         <div style={{ padding: '12px 14px' }}>
           <div style={{ background: 'white', borderRadius: 16, padding: 14, marginBottom: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
@@ -420,7 +435,6 @@ export default function GuestPage() {
         </div>
       )}
 
-      {/* Lightbox */}
       {lightbox && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.95)', zIndex: 200, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 16 }}
           onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
@@ -438,8 +452,6 @@ export default function GuestPage() {
           </div>
           <img src={lightbox.url} style={{ maxWidth: '100%', maxHeight: '60dvh', borderRadius: 12, objectFit: 'contain' }} />
           <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, marginTop: 6 }}>{lightboxIndex + 1} / {visiblePhotos.length}</div>
-
-          {/* ライトボックス内リアクション（総数＋種類別） */}
           <div style={{ marginTop: 10, textAlign: 'center' }}>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginBottom: 6 }}>
               {REACTIONS.map(r => {
@@ -453,15 +465,11 @@ export default function GuestPage() {
                 )
               })}
             </div>
-            {/* 総リアクション数 */}
             {(() => {
               const total = REACTIONS.reduce((sum, r) => sum + (reactions[lightbox?.id]?.[r]?.length || 0), 0)
-              return total > 0 ? (
-                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>合計 {total} リアクション</div>
-              ) : null
+              return total > 0 ? <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>合計 {total} リアクション</div> : null
             })()}
           </div>
-
           <div style={{ color: 'white', marginTop: 8, textAlign: 'center' }}>
             <div style={{ fontSize: 15, fontWeight: 'bold' }}>{lightbox.caption}</div>
             <div style={{ fontSize: 12, opacity: 0.6, marginTop: 2 }}>{lightbox.nick} · {lightbox.ts}</div>
@@ -485,7 +493,6 @@ export default function GuestPage() {
         </div>
       )}
 
-      {/* 削除確認 */}
       {confirmDelete && (
         <div onClick={() => setConfirmDelete(null)}
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
@@ -509,7 +516,6 @@ export default function GuestPage() {
         </div>
       )}
 
-      {/* Upload Modal */}
       {uploadOpen && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 300, display: 'flex', alignItems: 'flex-end' }} onClick={e => e.target === e.currentTarget && setUploadOpen(false)}>
           <div style={{ background: 'white', borderRadius: '24px 24px 0 0', padding: '20px 18px 36px', width: '100%', boxSizing: 'border-box' }}>
