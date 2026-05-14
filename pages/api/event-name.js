@@ -21,7 +21,7 @@ export default async function handler(req, res) {
 
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.SPREADSHEET_ID,
-      range: 'Events!A2:H',
+      range: 'Events!A2:I',
     })
 
     const rows = response.data.values || []
@@ -33,12 +33,15 @@ export default async function handler(req, res) {
 
     const tables = Number(eventRow[4]) || 4
     const tableNames = eventRow[7] ? JSON.parse(eventRow[7]) : Array.from({ length: tables }, (_, i) => `${i + 1}卓`)
+    // I列（index8）に開始時間を保存
+    const startTime = eventRow[8] || null
 
     res.json({
       name:       eventRow[2],
       date:       eventRow[3],
       tables,
       tableNames,
+      startTime,  // 例: "17:00"
     })
   } catch (e) {
     console.error(e)
