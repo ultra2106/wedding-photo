@@ -38,14 +38,13 @@ export default async function handler(req, res) {
 
   const serviceAuth = getServiceClient()
   const sheets = google.sheets({ version: 'v4', auth: serviceAuth })
-  const drive = getUserDriveClient(session.accessToken)
 
   // イベント一覧取得
   if (req.method === 'GET') {
     try {
       const response = await sheets.spreadsheets.values.get({
         spreadsheetId: process.env.SPREADSHEET_ID,
-        range: 'Events!A2:H',
+        range: 'Events!A2:I',
       })
       const rows = response.data.values || []
       const events = rows
@@ -56,7 +55,8 @@ export default async function handler(req, res) {
           date:       row[3],
           tables:     Number(row[4]),
           folderId:   row[5],
-          tableNames: row[7] ? JSON.parse(row[7]) : null, // カスタム卓名
+          tableNames: row[7] ? JSON.parse(row[7]) : null,
+          startTime:  row[8] || null,
         }))
       res.json({ events })
     } catch (e) {
@@ -68,14 +68,12 @@ export default async function handler(req, res) {
   // イベント作成
   if (req.method === 'POST') {
     try {
-      const { name, date, tables, tableNames } = req.body
+      const { name, date, tables, tableNames, startTime } = req.body
       const eventId = `evt_${Date.now()}`
+      const drive = getUserDriveClient(session.accessToken)
 
-      // カスタム卓名があればそれを使う、なければデフォルト
       const customNames = tableNames || Array.from({ length: tables }, (_, i) => `${i + 1}卓`)
-      const afterpartyName = '二次会'
 
-      // ドライブにフォルダ作成
       const rootFolder = await drive.files.create({
         requestBody: {
           name: `💍 ${name}`,
@@ -85,14 +83,12 @@ export default async function handler(req, res) {
       })
       const rootFolderId = rootFolder.data.id
 
-      // 卓ごとのサブフォルダ作成
       const folderNames = [
         '📢 全体公開',
-        ...customNames.map((n, i) => `🌸 ${n}`),
-        `🎉 ${afterpartyName}`,
+        ...customNames.map(n => `🌸 ${n}`),
+        '🎉 二次会',
         '🔒 主催者のみ',
       ]
-
       await Promise.all(folderNames.map(fName =>
         drive.files.create({
           requestBody: {
@@ -105,10 +101,10 @@ export default async function handler(req, res) {
 
       const encryptedToken = encrypt(session.refreshToken)
 
-      // H列にカスタム卓名をJSON保存
+      // I列に開始時間を保存
       await sheets.spreadsheets.values.append({
         spreadsheetId: process.env.SPREADSHEET_ID,
-        range: 'Events!A:H',
+        range: 'Events!A:I',
         valueInputOption: 'RAW',
         requestBody: {
           values: [[
@@ -119,19 +115,58 @@ export default async function handler(req, res) {
             tables,
             rootFolderId,
             encryptedToken,
-            JSON.stringify(customNames), // カスタム卓名
+            JSON.stringify(customNames),
+            startTime || '',  // 例: "17:00"
           ]]
         }
       })
 
       res.json({
         success: true,
-        event: { id: eventId, name, date, tables, folderId: rootFolderId, tableNames: customNames }
+        event: { id: eventId, name, date, tables, folderId: rootFolderId, tableNames: customNames, startTime }
       })
 
     } catch (e) {
       console.error(e)
       res.status(500).json({ error: 'イベントの作成に失敗しました', detail: e.message })
+    }
+  }
+
+  // 卓名・時間の更新
+  if (req.method === 'PATCH') {
+    try {
+      const { eventId, tableNames, startTime } = req.body
+
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId: process.env.SPREADSHEET_ID,
+        range: 'Events!A2:I',
+      })
+      const rows = response.data.values || []
+      const rowIndex = rows.findIndex(row => row[1] === eventId && row[0] === session.user.email)
+
+      if (rowIndex === -1) {
+        return res.status(404).json({ error: 'イベントが見つかりません' })
+      }
+
+      const actualRow = rowIndex + 2
+
+      // H列（卓名）とI列（開始時間）を更新
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: process.env.SPREADSHEET_ID,
+        range: `Events!H${actualRow}:I${actualRow}`,
+        valueInputOption: 'RAW',
+        requestBody: {
+          values: [[
+            JSON.stringify(tableNames),
+            startTime || '',
+          ]]
+        }
+      })
+
+      res.json({ success: true })
+    } catch (e) {
+      console.error(e)
+      res.status(500).json({ error: '更新に失敗しました', detail: e.message })
     }
   }
 }
