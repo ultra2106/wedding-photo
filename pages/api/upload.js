@@ -2,7 +2,6 @@ import { google } from 'googleapis'
 import { Readable } from 'stream'
 import crypto from 'crypto'
 
-// トークンを復号化
 function decrypt(text) {
   const secret = process.env.NEXTAUTH_SECRET.padEnd(32, '0').slice(0, 32)
   const [ivHex, encryptedHex] = text.split(':')
@@ -25,7 +24,6 @@ function getServiceClient() {
   return auth
 }
 
-// リフレッシュトークンから新しいアクセストークンを発行
 async function getDriveClientFromRefreshToken(encryptedRefreshToken) {
   const refreshToken = decrypt(encryptedRefreshToken)
   const auth = new google.auth.OAuth2(
@@ -33,7 +31,6 @@ async function getDriveClientFromRefreshToken(encryptedRefreshToken) {
     process.env.GOOGLE_CLIENT_SECRET
   )
   auth.setCredentials({ refresh_token: refreshToken })
-  // アクセストークンを自動更新
   await auth.getAccessToken()
   return google.drive({ version: 'v3', auth })
 }
@@ -44,13 +41,13 @@ export default async function handler(req, res) {
   try {
     const { eventId, fileName, fileData, mimeType, group, caption, visibility, nick } = req.body
 
-    // スプレッドシートからイベント情報を取得
     const serviceAuth = getServiceClient()
     const sheets = google.sheets({ version: 'v4', auth: serviceAuth })
 
+    // I列まで取得
     const sheetRes = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.SPREADSHEET_ID,
-      range: 'Events!A2:G',
+      range: 'Events!A2:I',
     })
 
     const rows = sheetRes.data.values || []
@@ -67,7 +64,6 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'トークンが見つかりません。主催者に再ログインを依頼してください。' })
     }
 
-    // 主催者のリフレッシュトークンでドライブクライアントを作成
     const drive = await getDriveClientFromRefreshToken(encryptedRefreshToken)
 
     // 保存先フォルダを決定
@@ -79,6 +75,7 @@ export default async function handler(req, res) {
     } else if (group === 'host') {
       folderKeyword = '主催者のみ'
     } else {
+      // カスタム卓名に対応するためフォルダを番号で検索
       const tableNum = group.replace('table', '')
       folderKeyword = `${tableNum}卓`
     }
