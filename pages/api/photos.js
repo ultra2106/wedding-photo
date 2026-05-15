@@ -1,7 +1,6 @@
 import { google } from 'googleapis'
 import crypto from 'crypto'
 
-// トークンを復号化
 function decrypt(text) {
   const secret = process.env.NEXTAUTH_SECRET.padEnd(32, '0').slice(0, 32)
   const [ivHex, encryptedHex] = text.split(':')
@@ -41,13 +40,13 @@ export default async function handler(req, res) {
   try {
     const { eventId, table, role } = req.query
 
-    // スプレッドシートからイベント情報を取得
     const serviceAuth = getServiceClient()
     const sheets = google.sheets({ version: 'v4', auth: serviceAuth })
 
+    // I列まで取得
     const sheetRes = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.SPREADSHEET_ID,
-      range: 'Events!A2:G',
+      range: 'Events!A2:I',
     })
 
     const rows = sheetRes.data.values || []
@@ -64,7 +63,6 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'トークンが見つかりません', photos: [] })
     }
 
-    // 主催者のリフレッシュトークンでドライブクライアントを作成
     const drive = await getDriveClientFromRefreshToken(encryptedRefreshToken)
 
     // サブフォルダ一覧を取得
