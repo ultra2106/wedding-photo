@@ -6,12 +6,7 @@ import { useState, useEffect } from 'react'
 
 const TABLE_COLORS = ['#9c27b0','#43a047','#fb8c00','#00acc1','#f44336','#3f51b5','#009688','#e91e8c','#795548','#607d8b']
 
-// 時間の選択肢を生成（00:00〜23:30を30分刻み）
-const TIME_OPTIONS = Array.from({ length: 48 }, (_, i) => {
-  const h = Math.floor(i / 2).toString().padStart(2, '0')
-  const m = i % 2 === 0 ? '00' : '30'
-  return `${h}:${m}`
-})
+
 
 export default function Dashboard() {
   const { data: session, status } = useSession()
@@ -192,14 +187,17 @@ export default function Dashboard() {
               <label style={{ fontSize: 13, fontWeight: 'bold', color: '#7b1fa2', display: 'block', marginBottom: 8 }}>
                 🕐 写真投稿の開始時間（任意）
               </label>
-              <select value={newEvent.startTime}
-                onChange={e => setNewEvent(p => ({ ...p, startTime: e.target.value }))}
-                style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1.5px solid #e0bfff', fontSize: 14, boxSizing: 'border-box', background: 'white', outline: 'none' }}>
-                <option value="">設定しない（当日終日投稿可能）</option>
-                {TIME_OPTIONS.map(t => (
-                  <option key={t} value={t}>{t} 以降</option>
-                ))}
-              </select>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input type="time" value={newEvent.startTime}
+                  onChange={e => setNewEvent(p => ({ ...p, startTime: e.target.value }))}
+                  style={{ flex: 1, padding: '10px 12px', borderRadius: 10, border: '1.5px solid #e0bfff', fontSize: 16, boxSizing: 'border-box', background: 'white', outline: 'none' }} />
+                {newEvent.startTime && (
+                  <button onClick={() => setNewEvent(p => ({ ...p, startTime: '' }))}
+                    style={{ padding: '8px 12px', borderRadius: 10, border: '1.5px solid #eee', background: 'white', color: '#aaa', fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                    クリア
+                  </button>
+                )}
+              </div>
               {newEvent.startTime && (
                 <div style={{ fontSize: 12, color: '#9c27b0', marginTop: 6 }}>
                   📅 {newEvent.date || '当日'} の {newEvent.startTime} から写真投稿が可能になります
@@ -223,17 +221,17 @@ export default function Dashboard() {
             {/* 卓名カスタマイズ */}
             <div style={{ background: '#faf4ff', borderRadius: 12, padding: 12, marginBottom: 14 }}>
               <div style={{ fontSize: 13, fontWeight: 'bold', color: '#7b1fa2', marginBottom: 10 }}>🌸 卓名をカスタマイズ（任意）</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {customTableNames.map((name, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ fontSize: 11, color: TABLE_COLORS[i % 10], fontWeight: 'bold', whiteSpace: 'nowrap' }}>{i+1}卓</span>
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 12, color: TABLE_COLORS[i % 10], fontWeight: 'bold', whiteSpace: 'nowrap', width: 28 }}>{i+1}卓</span>
                     <input value={name} onChange={e => {
                       const next = [...customTableNames]
                       next[i] = e.target.value
                       setCustomTableNames(next)
                     }}
                       placeholder={`${i+1}卓`}
-                      style={{ flex: 1, padding: '6px 8px', borderRadius: 8, border: '1.5px solid #e0bfff', fontSize: 13, outline: 'none', minWidth: 0 }} />
+                      style={{ flex: 1, padding: '8px 10px', borderRadius: 8, border: '1.5px solid #e0bfff', fontSize: 14, outline: 'none', width: '100%', boxSizing: 'border-box' }} />
                   </div>
                 ))}
               </div>
@@ -331,13 +329,17 @@ export default function Dashboard() {
               <label style={{ fontSize: 13, fontWeight: 'bold', color: '#7b1fa2', display: 'block', marginBottom: 8 }}>
                 🕐 写真投稿の開始時間
               </label>
-              <select value={editStartTime} onChange={e => setEditStartTime(e.target.value)}
-                style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1.5px solid #e0bfff', fontSize: 14, boxSizing: 'border-box', background: 'white', outline: 'none' }}>
-                <option value="">設定しない（当日終日投稿可能）</option>
-                {TIME_OPTIONS.map(t => (
-                  <option key={t} value={t}>{t} 以降</option>
-                ))}
-              </select>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input type="time" value={editStartTime}
+                  onChange={e => setEditStartTime(e.target.value)}
+                  style={{ flex: 1, padding: '10px 12px', borderRadius: 10, border: '1.5px solid #e0bfff', fontSize: 16, boxSizing: 'border-box', background: 'white', outline: 'none' }} />
+                {editStartTime && (
+                  <button onClick={() => setEditStartTime('')}
+                    style={{ padding: '8px 12px', borderRadius: 10, border: '1.5px solid #eee', background: 'white', color: '#aaa', fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                    クリア
+                  </button>
+                )}
+              </div>
               {editStartTime && (
                 <div style={{ fontSize: 12, color: '#9c27b0', marginTop: 6 }}>
                   📅 {editingEvent.date} の {editStartTime} から写真投稿が可能になります
@@ -348,16 +350,16 @@ export default function Dashboard() {
             {/* 卓名の編集 */}
             <div style={{ background: '#faf4ff', borderRadius: 12, padding: 14, marginBottom: 16 }}>
               <div style={{ fontSize: 13, fontWeight: 'bold', color: '#7b1fa2', marginBottom: 10 }}>🌸 卓名を変更</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {editTableNames.map((name, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ fontSize: 11, color: TABLE_COLORS[i % 10], fontWeight: 'bold', whiteSpace: 'nowrap' }}>{i+1}卓</span>
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 12, color: TABLE_COLORS[i % 10], fontWeight: 'bold', whiteSpace: 'nowrap', width: 28 }}>{i+1}卓</span>
                     <input value={name} onChange={e => {
                       const next = [...editTableNames]
                       next[i] = e.target.value
                       setEditTableNames(next)
                     }}
-                      style={{ flex: 1, padding: '6px 8px', borderRadius: 8, border: '1.5px solid #e0bfff', fontSize: 13, outline: 'none', minWidth: 0 }} />
+                      style={{ flex: 1, padding: '8px 10px', borderRadius: 8, border: '1.5px solid #e0bfff', fontSize: 14, outline: 'none', width: '100%', boxSizing: 'border-box' }} />
                   </div>
                 ))}
               </div>
