@@ -14,6 +14,7 @@ export default function GuestPage() {
   const router = useRouter()
   const { id, table } = router.query
   const [nick, setNick] = useState('')
+  const [savedNick, setSavedNick] = useState('')
   const [loggedIn, setLoggedIn] = useState(false)
   const [userTable, setUserTable] = useState(table || 'table1')
   const [eventInfo, setEventInfo] = useState(null)
@@ -41,6 +42,15 @@ export default function GuestPage() {
   const intervalRef = useRef(null)
 
   useEffect(() => { if (table) setUserTable(table) }, [table])
+
+  // ニックネームをlocalStorageから復元
+  useEffect(() => {
+    const stored = localStorage.getItem('wedding_photo_nick')
+    if (stored) {
+      setNick(stored)
+      setSavedNick(stored)
+    }
+  }, [])
 
   useEffect(() => {
     if (loggedIn && id) {
@@ -70,38 +80,32 @@ export default function GuestPage() {
     } catch (e) { console.error(e) }
   }
 
-  // 投稿可能かどうかチェック
+  const handleLogin = () => {
+    if (!nick.trim()) return
+    localStorage.setItem('wedding_photo_nick', nick.trim())
+    setLoggedIn(true)
+  }
+
   const canUpload = () => {
     if (!eventInfo?.date) return true
     const now = new Date()
     const today = now.toISOString().split('T')[0]
-
-    // 日付が違う場合はNG
     if (today !== eventInfo.date) return false
-
-    // 開始時間が設定されている場合は時間チェック
     if (eventInfo.startTime) {
       const [startHour, startMin] = eventInfo.startTime.split(':').map(Number)
       const startMinutes = startHour * 60 + startMin
       const nowMinutes = now.getHours() * 60 + now.getMinutes()
       return nowMinutes >= startMinutes
     }
-
     return true
   }
 
-  // 投稿不可の理由を返す
   const uploadBlockReason = () => {
     if (!eventInfo?.date) return null
     const now = new Date()
     const today = now.toISOString().split('T')[0]
-
-    if (today !== eventInfo.date) {
-      return `📅 写真の投稿は結婚式当日（${eventInfo.date}）のみ可能です`
-    }
-    if (eventInfo.startTime && !canUpload()) {
-      return `🕐 写真の投稿は ${eventInfo.startTime} から開始されます`
-    }
+    if (today !== eventInfo.date) return `📅 写真の投稿は結婚式当日（${eventInfo.date}）のみ可能です`
+    if (eventInfo.startTime && !canUpload()) return `🕐 写真の投稿は ${eventInfo.startTime} から開始されます`
     return null
   }
 
@@ -254,12 +258,11 @@ export default function GuestPage() {
     return { total, detail: r }
   }
 
-  const visiblePhotos = photos.filter(p =>
-    photoFilter === 'best' ? favorites.includes(p.id) : true
-  )
+  const visiblePhotos = photos.filter(p => photoFilter === 'best' ? favorites.includes(p.id) : true)
   const bestCount = photos.filter(p => favorites.includes(p.id)).length
   const blockReason = uploadBlockReason()
 
+  // ── ログイン画面 ──
   if (!loggedIn) return (
     <div style={{ minHeight: '100dvh', background: 'linear-gradient(160deg,#fff0f6,#f3e8ff)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, fontFamily: 'sans-serif' }}>
       <div style={{ background: 'white', borderRadius: 24, padding: 28, width: '100%', maxWidth: 360, boxShadow: '0 8px 40px rgba(233,30,140,0.12)' }}>
@@ -268,18 +271,38 @@ export default function GuestPage() {
           <h2 style={{ margin: '8px 0 4px', color: '#c2185b', fontSize: 22 }}>Wedding Photo</h2>
           <p style={{ color: '#aaa', fontSize: 13, margin: 0 }}>{tableLabel() || 'アルバム'}</p>
         </div>
-        <input placeholder="ニックネームを入力" value={nick} onChange={e => setNick(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && nick.trim() && setLoggedIn(true)}
-          style={{ width: '100%', padding: '13px 14px', borderRadius: 12, border: '1.5px solid #eee', fontSize: 16, boxSizing: 'border-box', marginBottom: 12, outline: 'none' }} />
-        <button onClick={() => nick.trim() && setLoggedIn(true)} disabled={!nick.trim()}
-          style={{ width: '100%', padding: 14, borderRadius: 12, border: 'none', background: nick.trim() ? 'linear-gradient(90deg,#e91e8c,#9c27b0)' : '#ddd', color: 'white', fontWeight: 'bold', fontSize: 16, cursor: nick.trim() ? 'pointer' : 'default' }}>
+
+        <input
+          placeholder="ニックネームを入力"
+          value={nick}
+          onChange={e => setNick(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && nick.trim() && handleLogin()}
+          style={{ width: '100%', padding: '13px 14px', borderRadius: 12, border: '1.5px solid #eee', fontSize: 16, boxSizing: 'border-box', marginBottom: 8, outline: 'none' }}
+        />
+
+        {savedNick && nick === savedNick && (
+          <div style={{ fontSize: 12, color: '#9c27b0', background: '#f3e8ff', borderRadius: 8, padding: '6px 10px', marginBottom: 10, textAlign: 'center' }}>
+            ✨ 前回のニックネームを自動入力しました
+          </div>
+        )}
+
+        {savedNick && nick !== savedNick && (
+          <button onClick={() => setNick(savedNick)}
+            style={{ width: '100%', padding: '8px', borderRadius: 10, border: '1.5px solid #e0bfff', background: '#faf4ff', color: '#9c27b0', fontSize: 13, cursor: 'pointer', marginBottom: 8 }}>
+            前回の「{savedNick}」を使う
+          </button>
+        )}
+
+        <button onClick={handleLogin} disabled={!nick.trim()}
+          style={{ width: '100%', padding: 14, borderRadius: 12, border: 'none', background: nick.trim() ? 'linear-gradient(90deg,#e91e8c,#9c27b0)' : '#ddd', color: 'white', fontWeight: 'bold', fontSize: 16, cursor: nick.trim() ? 'pointer' : 'default', marginBottom: 12 }}>
           入場する 🎊
         </button>
-        <p style={{ color: '#bbb', fontSize: 12, textAlign: 'center', marginTop: 12 }}>Googleアカウント不要です</p>
+        <p style={{ color: '#bbb', fontSize: 12, textAlign: 'center', margin: 0 }}>Googleアカウント不要です</p>
       </div>
     </div>
   )
 
+  // ── メイン画面 ──
   return (
     <div style={{ minHeight: '100dvh', background: '#f5f5f5', fontFamily: 'sans-serif', paddingBottom: 80 }}>
 
@@ -299,7 +322,6 @@ export default function GuestPage() {
         }
       </div>
 
-      {/* 投稿制限バナー */}
       {blockReason && (
         <div style={{ background: '#fff8e1', padding: '10px 16px', fontSize: 13, color: '#795548', textAlign: 'center', borderBottom: '1px solid #ffe082' }}>
           {blockReason}
