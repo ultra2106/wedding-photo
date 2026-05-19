@@ -43,7 +43,6 @@ export default function GuestPage() {
 
   useEffect(() => { if (table) setUserTable(table) }, [table])
 
-  // ニックネームをlocalStorageから復元
   useEffect(() => {
     const stored = localStorage.getItem('wedding_photo_nick')
     if (stored) {
@@ -297,6 +296,14 @@ export default function GuestPage() {
           style={{ width: '100%', padding: 14, borderRadius: 12, border: 'none', background: nick.trim() ? 'linear-gradient(90deg,#e91e8c,#9c27b0)' : '#ddd', color: 'white', fontWeight: 'bold', fontSize: 16, cursor: nick.trim() ? 'pointer' : 'default', marginBottom: 12 }}>
           入場する 🎊
         </button>
+
+        {/* 使い方を見るボタン */}
+        <button
+          onClick={() => router.push(`/how-to-use?role=guest`)}
+          style={{ width: '100%', padding: '11px 16px', borderRadius: 12, border: '1.5px solid #fce4ec', background: 'white', color: '#e91e8c', fontWeight: 'bold', fontSize: 14, cursor: 'pointer', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+          📖 使い方を見る
+        </button>
+
         <p style={{ color: '#bbb', fontSize: 12, textAlign: 'center', margin: 0 }}>Googleアカウント不要です</p>
       </div>
     </div>
