@@ -55,9 +55,16 @@ export default function Home() {
           主催者としてGoogleログイン
         </button>
 
-        <p style={{ color: '#bbb', fontSize: 12, margin: 0 }}>
+        <p style={{ color: '#bbb', fontSize: 12, margin: '0 0 16px' }}>
           ゲストはQRコードをスキャンするだけ！<br />Googleアカウント不要です。
         </p>
+
+        <p style={{ margin: 0, fontSize: 12 }}>
+          <a href="/privacy" style={{ color: '#bbb', textDecoration: 'underline' }}>プライバシーポリシー</a>
+          　｜　
+          <a href="/how-to-use" style={{ color: '#bbb', textDecoration: 'underline' }}>使い方</a>
+        </p>
+
       </div>
     </div>
   )
