@@ -306,8 +306,14 @@ export default function HowToUse() {
     else if (role === 'host') setView('host')
   }, [router.query])
 
+  // role=guest で来た場合は戻るで直接ニックネーム入力画面（前のページ）へ
+  const fromGuest = router.query.role === 'guest'
+
   const handleBack = () => {
-    if (view !== 'select') {
+    if (fromGuest) {
+      // ニックネーム入力画面から来たのでそのまま戻る
+      router.back()
+    } else if (view !== 'select') {
       setView('select')
     } else {
       router.back()
