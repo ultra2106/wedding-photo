@@ -42,21 +42,25 @@ export default async function handler(req, res) {
   // イベント一覧取得
   if (req.method === 'GET') {
     try {
+      // L列（新郎新婦名）まで取得
       const response = await sheets.spreadsheets.values.get({
         spreadsheetId: process.env.SPREADSHEET_ID,
-        range: 'Events!A2:I',
+        range: 'Events!A2:L',
       })
       const rows = response.data.values || []
       const events = rows
         .filter(row => row[0] === session.user.email && row[1])
         .map(row => ({
-          id:         row[1],
-          name:       row[2],
-          date:       row[3],
-          tables:     Number(row[4]),
-          folderId:   row[5],
-          tableNames: row[7] ? JSON.parse(row[7]) : null,
-          startTime:  row[8] || null,
+          id:             row[1],
+          name:           row[2],
+          date:           row[3],
+          tables:         Number(row[4]),
+          folderId:       row[5],
+          tableNames:     row[7] ? JSON.parse(row[7]) : null,
+          startTime:      row[8] || null,
+          coverPhotoUrl:  row[9] || null,
+          welcomeMessage: row[10] || '',
+          coupleNames:    row[11] || '',
         }))
       res.json({ events })
     } catch (e) {
@@ -101,10 +105,10 @@ export default async function handler(req, res) {
 
       const encryptedToken = encrypt(session.refreshToken)
 
-      // I列に開始時間を保存
+      // J:カバー写真URL, K:ウェルカムメッセージ, L:新郎新婦名 は作成時は空欄
       await sheets.spreadsheets.values.append({
         spreadsheetId: process.env.SPREADSHEET_ID,
-        range: 'Events!A:I',
+        range: 'Events!A:L',
         valueInputOption: 'RAW',
         requestBody: {
           values: [[
@@ -116,14 +120,21 @@ export default async function handler(req, res) {
             rootFolderId,
             encryptedToken,
             JSON.stringify(customNames),
-            startTime || '',  // 例: "17:00"
+            startTime || '',
+            '', // J: coverPhotoUrl
+            '', // K: welcomeMessage
+            '', // L: coupleNames
           ]]
         }
       })
 
       res.json({
         success: true,
-        event: { id: eventId, name, date, tables, folderId: rootFolderId, tableNames: customNames, startTime }
+        event: {
+          id: eventId, name, date, tables, folderId: rootFolderId,
+          tableNames: customNames, startTime,
+          coverPhotoUrl: null, welcomeMessage: '', coupleNames: '',
+        }
       })
 
     } catch (e) {
@@ -132,14 +143,14 @@ export default async function handler(req, res) {
     }
   }
 
-  // 卓名・時間の更新
+  // 卓名・時間・カバー写真・ウェルカムメッセージ・新郎新婦名の更新
   if (req.method === 'PATCH') {
     try {
-      const { eventId, tableNames, startTime } = req.body
+      const { eventId, tableNames, startTime, coverPhotoUrl, welcomeMessage, coupleNames } = req.body
 
       const response = await sheets.spreadsheets.values.get({
         spreadsheetId: process.env.SPREADSHEET_ID,
-        range: 'Events!A2:I',
+        range: 'Events!A2:L',
       })
       const rows = response.data.values || []
       const rowIndex = rows.findIndex(row => row[1] === eventId && row[0] === session.user.email)
@@ -148,17 +159,28 @@ export default async function handler(req, res) {
         return res.status(404).json({ error: 'イベントが見つかりません' })
       }
 
+      const existing = rows[rowIndex]
       const actualRow = rowIndex + 2
 
-      // H列（卓名）とI列（開始時間）を更新
+      // 渡されなかった項目は既存の値を維持する
+      const nextTableNames     = tableNames !== undefined ? JSON.stringify(tableNames) : (existing[7] || '')
+      const nextStartTime      = startTime !== undefined ? startTime : (existing[8] || '')
+      const nextCoverPhotoUrl  = coverPhotoUrl !== undefined ? coverPhotoUrl : (existing[9] || '')
+      const nextWelcomeMessage = welcomeMessage !== undefined ? welcomeMessage : (existing[10] || '')
+      const nextCoupleNames    = coupleNames !== undefined ? coupleNames : (existing[11] || '')
+
+      // H列〜L列をまとめて更新
       await sheets.spreadsheets.values.update({
         spreadsheetId: process.env.SPREADSHEET_ID,
-        range: `Events!H${actualRow}:I${actualRow}`,
+        range: `Events!H${actualRow}:L${actualRow}`,
         valueInputOption: 'RAW',
         requestBody: {
           values: [[
-            JSON.stringify(tableNames),
-            startTime || '',
+            nextTableNames,
+            nextStartTime,
+            nextCoverPhotoUrl,
+            nextWelcomeMessage,
+            nextCoupleNames,
           ]]
         }
       })
