@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic'
 
 import { useSession, signOut } from 'next-auth/react'
 import { useRouter } from 'next/router'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 const TABLE_COLORS = ['#9c27b0','#43a047','#fb8c00','#00acc1','#f44336','#3f51b5','#009688','#e91e8c','#795548','#607d8b']
 
@@ -20,9 +20,14 @@ export default function Dashboard() {
   const [editingEvent, setEditingEvent] = useState(null) // 編集中のイベント
   const [editTableNames, setEditTableNames] = useState([])
   const [editStartTime, setEditStartTime] = useState('')
+  const [editCoverPhotoUrl, setEditCoverPhotoUrl] = useState(null)
+  const [editWelcomeMessage, setEditWelcomeMessage] = useState('')
+  const [editCoupleNames, setEditCoupleNames] = useState('')
+  const [uploadingCover, setUploadingCover] = useState(false)
   const [saving, setSaving] = useState(false)
   const [newEvent, setNewEvent] = useState({ name: '', date: '', tables: 4, startTime: '' })
   const [customTableNames, setCustomTableNames] = useState(['1卓','2卓','3卓','4卓'])
+  const coverFileRef = useRef()
 
   useEffect(() => {
     if (status === 'unauthenticated') router.push('/')
@@ -96,9 +101,48 @@ export default function Dashboard() {
     setEditingEvent(ev)
     setEditTableNames(ev.tableNames || Array.from({ length: ev.tables }, (_, i) => `${i + 1}卓`))
     setEditStartTime(ev.startTime || '')
+    setEditCoverPhotoUrl(ev.coverPhotoUrl || null)
+    setEditWelcomeMessage(ev.welcomeMessage || '')
+    setEditCoupleNames(ev.coupleNames || '')
   }
 
-  // 卓名・時間を保存
+  // カバー写真を選んでアップロード
+  const handleCoverFile = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file || !editingEvent) return
+    setUploadingCover(true)
+    try {
+      const base64 = await new Promise((res) => {
+        const reader = new FileReader()
+        reader.onload = () => res(reader.result.split(',')[1])
+        reader.readAsDataURL(file)
+      })
+      const res = await fetch('/api/upload-cover', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          eventId: editingEvent.id,
+          fileData: base64,
+          mimeType: file.type,
+        })
+      })
+      const data = await res.json()
+      if (data.success) {
+        setEditCoverPhotoUrl(data.coverPhotoUrl)
+        setEvents(prev => prev.map(ev =>
+          ev.id === editingEvent.id ? { ...ev, coverPhotoUrl: data.coverPhotoUrl } : ev
+        ))
+      } else {
+        alert(data.error || 'カバー写真のアップロードに失敗しました')
+      }
+    } catch (e) {
+      alert('カバー写真のアップロードに失敗しました')
+    }
+    setUploadingCover(false)
+  }
+
+  // 卓名・時間・カバー写真・ウェルカムメッセージ・新郎新婦名を保存
   const saveEdit = async () => {
     if (!editingEvent) return
     setSaving(true)
@@ -110,13 +154,23 @@ export default function Dashboard() {
           eventId: editingEvent.id,
           tableNames: editTableNames,
           startTime: editStartTime,
+          coverPhotoUrl: editCoverPhotoUrl || '',
+          welcomeMessage: editWelcomeMessage,
+          coupleNames: editCoupleNames,
         })
       })
       const data = await res.json()
       if (data.success) {
         setEvents(prev => prev.map(ev =>
           ev.id === editingEvent.id
-            ? { ...ev, tableNames: editTableNames, startTime: editStartTime }
+            ? {
+                ...ev,
+                tableNames: editTableNames,
+                startTime: editStartTime,
+                coverPhotoUrl: editCoverPhotoUrl || null,
+                welcomeMessage: editWelcomeMessage,
+                coupleNames: editCoupleNames,
+              }
             : ev
         ))
         setEditingEvent(null)
@@ -238,6 +292,10 @@ export default function Dashboard() {
               <div style={{ fontSize: 11, color: '#aaa', marginTop: 8 }}>例：「新郎側」「新婦側」「家族席」など</div>
             </div>
 
+            <div style={{ fontSize: 11, color: '#aaa', marginBottom: 14, background: '#f5f5f5', borderRadius: 10, padding: '8px 12px' }}>
+              💡 カバー写真・ウェルカムメッセージ・新郎新婦名の表示は、作成後に「✏️ 編集」から設定できます
+            </div>
+
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={() => setShowCreate(false)}
                 style={{ flex: 1, padding: 13, borderRadius: 12, border: '1.5px solid #eee', background: 'white', fontSize: 14, cursor: 'pointer' }}>
@@ -266,48 +324,59 @@ export default function Dashboard() {
         ) : events.map(ev => {
           const tNames = getTableNames(ev)
           return (
-            <div key={ev.id} style={{ background: 'white', borderRadius: 20, padding: 18, marginBottom: 14, boxShadow: '0 4px 20px rgba(0,0,0,0.06)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                <div>
-                  <div style={{ fontWeight: 'bold', fontSize: 17, color: '#222' }}>💍 {ev.name}</div>
-                  <div style={{ fontSize: 12, color: '#aaa', marginTop: 3 }}>
-                    {ev.date}
-                    {ev.startTime && <span style={{ marginLeft: 6, color: '#9c27b0', fontWeight: 'bold' }}>🕐 {ev.startTime}〜</span>}
-                    · {ev.tables}卓
+            <div key={ev.id} style={{ background: 'white', borderRadius: 20, overflow: 'hidden', marginBottom: 14, boxShadow: '0 4px 20px rgba(0,0,0,0.06)' }}>
+
+              {/* カバー写真（設定されている場合のみ） */}
+              {ev.coverPhotoUrl && (
+                <div style={{ width: '100%', height: 110, background: `url(${ev.coverPhotoUrl}) center/cover` }} />
+              )}
+
+              <div style={{ padding: 18 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                  <div>
+                    <div style={{ fontWeight: 'bold', fontSize: 17, color: '#222' }}>💍 {ev.name}</div>
+                    {ev.coupleNames && (
+                      <div style={{ fontSize: 13, color: '#9c27b0', fontWeight: 'bold', marginTop: 2 }}>{ev.coupleNames}</div>
+                    )}
+                    <div style={{ fontSize: 12, color: '#aaa', marginTop: 3 }}>
+                      {ev.date}
+                      {ev.startTime && <span style={{ marginLeft: 6, color: '#9c27b0', fontWeight: 'bold' }}>🕐 {ev.startTime}〜</span>}
+                      · {ev.tables}卓
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <span style={{ background: '#f3e8ff', color: '#9c27b0', fontSize: 11, padding: '4px 10px', borderRadius: 10, fontWeight: 'bold' }}>開催予定</span>
+                    <button onClick={() => setConfirmDeleteEvent(ev)}
+                      style={{ background: '#fff0f0', border: 'none', color: '#e53935', width: 30, height: 30, borderRadius: '50%', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      🗑️
+                    </button>
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <span style={{ background: '#f3e8ff', color: '#9c27b0', fontSize: 11, padding: '4px 10px', borderRadius: 10, fontWeight: 'bold' }}>開催予定</span>
-                  <button onClick={() => setConfirmDeleteEvent(ev)}
-                    style={{ background: '#fff0f0', border: 'none', color: '#e53935', width: 30, height: 30, borderRadius: '50%', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    🗑️
+
+                {/* 卓名タグ */}
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+                  {tNames.map((n, i) => (
+                    <span key={i} style={{ fontSize: 11, background: TABLE_COLORS[i % 10] + '18', color: TABLE_COLORS[i % 10], padding: '3px 10px', borderRadius: 20, fontWeight: 'bold' }}>
+                      🌸 {n}
+                    </span>
+                  ))}
+                  <span style={{ fontSize: 11, background: '#f4433618', color: '#f44336', padding: '3px 10px', borderRadius: 20, fontWeight: 'bold' }}>🎉 二次会</span>
+                </div>
+
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => router.push(`/host/${ev.id}`)}
+                    style={{ flex: 1, padding: '11px', borderRadius: 12, border: 'none', background: 'linear-gradient(90deg,#e91e8c,#9c27b0)', color: 'white', fontWeight: 'bold', fontSize: 13, cursor: 'pointer' }}>
+                    📷 アルバム
+                  </button>
+                  <button onClick={() => router.push(`/qr/${ev.id}`)}
+                    style={{ flex: 1, padding: '11px', borderRadius: 12, border: '1.5px solid #e91e8c', background: 'white', color: '#e91e8c', fontWeight: 'bold', fontSize: 13, cursor: 'pointer' }}>
+                    📱 QR
+                  </button>
+                  <button onClick={() => openEdit(ev)}
+                    style={{ flex: 1, padding: '11px', borderRadius: 12, border: '1.5px solid #9c27b0', background: 'white', color: '#9c27b0', fontWeight: 'bold', fontSize: 13, cursor: 'pointer' }}>
+                    ✏️ 編集
                   </button>
                 </div>
-              </div>
-
-              {/* 卓名タグ */}
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
-                {tNames.map((n, i) => (
-                  <span key={i} style={{ fontSize: 11, background: TABLE_COLORS[i % 10] + '18', color: TABLE_COLORS[i % 10], padding: '3px 10px', borderRadius: 20, fontWeight: 'bold' }}>
-                    🌸 {n}
-                  </span>
-                ))}
-                <span style={{ fontSize: 11, background: '#f4433618', color: '#f44336', padding: '3px 10px', borderRadius: 20, fontWeight: 'bold' }}>🎉 二次会</span>
-              </div>
-
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={() => router.push(`/host/${ev.id}`)}
-                  style={{ flex: 1, padding: '11px', borderRadius: 12, border: 'none', background: 'linear-gradient(90deg,#e91e8c,#9c27b0)', color: 'white', fontWeight: 'bold', fontSize: 13, cursor: 'pointer' }}>
-                  📷 アルバム
-                </button>
-                <button onClick={() => router.push(`/qr/${ev.id}`)}
-                  style={{ flex: 1, padding: '11px', borderRadius: 12, border: '1.5px solid #e91e8c', background: 'white', color: '#e91e8c', fontWeight: 'bold', fontSize: 13, cursor: 'pointer' }}>
-                  📱 QR
-                </button>
-                <button onClick={() => openEdit(ev)}
-                  style={{ flex: 1, padding: '11px', borderRadius: 12, border: '1.5px solid #9c27b0', background: 'white', color: '#9c27b0', fontWeight: 'bold', fontSize: 13, cursor: 'pointer' }}>
-                  ✏️ 編集
-                </button>
               </div>
             </div>
           )
@@ -323,6 +392,68 @@ export default function Dashboard() {
             <div style={{ width: 36, height: 4, background: '#ddd', borderRadius: 2, margin: '0 auto 16px' }} />
             <h3 style={{ margin: '0 0 4px', fontSize: 17 }}>✏️ イベント設定を編集</h3>
             <div style={{ fontSize: 13, color: '#aaa', marginBottom: 16 }}>💍 {editingEvent.name}</div>
+
+            {/* カバー写真 */}
+            <div style={{ background: '#faf4ff', borderRadius: 12, padding: 14, marginBottom: 16 }}>
+              <label style={{ fontSize: 13, fontWeight: 'bold', color: '#7b1fa2', display: 'block', marginBottom: 8 }}>
+                🖼️ カバー写真
+              </label>
+              <div onClick={() => coverFileRef.current?.click()}
+                style={{
+                  width: '100%', height: 120, borderRadius: 10, marginBottom: 8, cursor: 'pointer',
+                  background: editCoverPhotoUrl ? `url(${editCoverPhotoUrl}) center/cover` : '#f0f0f0',
+                  border: '2px dashed #e0bfff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  position: 'relative', overflow: 'hidden',
+                }}>
+                {!editCoverPhotoUrl && !uploadingCover && (
+                  <div style={{ textAlign: 'center', color: '#bbb' }}>
+                    <div style={{ fontSize: 24 }}>📷</div>
+                    <div style={{ fontSize: 12 }}>タップして写真を選択</div>
+                  </div>
+                )}
+                {uploadingCover && (
+                  <div style={{ position: 'absolute', inset: 0, background: 'rgba(255,255,255,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: '#7b1fa2', fontWeight: 'bold' }}>
+                    ⏳ アップロード中...
+                  </div>
+                )}
+              </div>
+              <input ref={coverFileRef} type="file" accept="image/*" onChange={handleCoverFile} style={{ display: 'none' }} />
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => coverFileRef.current?.click()} disabled={uploadingCover}
+                  style={{ flex: 1, padding: '8px', borderRadius: 8, border: '1.5px solid #e0bfff', background: 'white', color: '#7b1fa2', fontSize: 12, cursor: 'pointer', fontWeight: 'bold' }}>
+                  {editCoverPhotoUrl ? '🔄 写真を変更' : '📷 写真を選ぶ'}
+                </button>
+                {editCoverPhotoUrl && (
+                  <button onClick={() => setEditCoverPhotoUrl(null)} disabled={uploadingCover}
+                    style={{ flex: 1, padding: '8px', borderRadius: 8, border: '1.5px solid #eee', background: 'white', color: '#aaa', fontSize: 12, cursor: 'pointer' }}>
+                    削除する
+                  </button>
+                )}
+              </div>
+              <div style={{ fontSize: 11, color: '#aaa', marginTop: 6 }}>ゲストのニックネーム入力画面のヘッダーに表示されます</div>
+            </div>
+
+            {/* 新郎新婦の名前表示 */}
+            <div style={{ background: '#faf4ff', borderRadius: 12, padding: 14, marginBottom: 16 }}>
+              <label style={{ fontSize: 13, fontWeight: 'bold', color: '#7b1fa2', display: 'block', marginBottom: 8 }}>
+                💑 新郎新婦の名前表示
+              </label>
+              <input value={editCoupleNames} onChange={e => setEditCoupleNames(e.target.value)}
+                placeholder="例：太郎 & 花子"
+                style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1.5px solid #e0bfff', fontSize: 15, boxSizing: 'border-box', outline: 'none', background: 'white' }} />
+              <div style={{ fontSize: 11, color: '#aaa', marginTop: 6 }}>ゲスト画面に大きく表示されます（イベント名とは別に設定できます）</div>
+            </div>
+
+            {/* ウェルカムメッセージ */}
+            <div style={{ background: '#faf4ff', borderRadius: 12, padding: 14, marginBottom: 16 }}>
+              <label style={{ fontSize: 13, fontWeight: 'bold', color: '#7b1fa2', display: 'block', marginBottom: 8 }}>
+                💌 ウェルカムメッセージ
+              </label>
+              <textarea value={editWelcomeMessage} onChange={e => setEditWelcomeMessage(e.target.value)} rows={3}
+                placeholder="例：本日は私たちの結婚式にお越しいただきありがとうございます。素敵な写真をたくさん残してください！"
+                style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1.5px solid #e0bfff', fontSize: 14, boxSizing: 'border-box', outline: 'none', resize: 'none', background: 'white' }} />
+              <div style={{ fontSize: 11, color: '#aaa', marginTop: 6 }}>ゲストのニックネーム入力画面に表示されます</div>
+            </div>
 
             {/* 投稿開始時間の編集 */}
             <div style={{ background: '#faf4ff', borderRadius: 12, padding: 14, marginBottom: 16 }}>
@@ -370,7 +501,7 @@ export default function Dashboard() {
                 style={{ flex: 1, padding: 14, borderRadius: 12, border: '1.5px solid #eee', background: 'white', fontSize: 15, cursor: 'pointer' }}>
                 キャンセル
               </button>
-              <button onClick={saveEdit} disabled={saving}
+              <button onClick={saveEdit} disabled={saving || uploadingCover}
                 style={{ flex: 2, padding: 14, borderRadius: 12, border: 'none', background: 'linear-gradient(90deg,#e91e8c,#9c27b0)', color: 'white', fontWeight: 'bold', fontSize: 15, cursor: 'pointer' }}>
                 {saving ? '保存中...' : '💾 保存する'}
               </button>
