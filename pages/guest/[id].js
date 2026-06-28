@@ -51,6 +51,19 @@ export default function GuestPage() {
     }
   }, [])
 
+  // ログイン前でもカバー写真・ウェルカムメッセージ・新郎新婦名を表示するため先に取得
+  useEffect(() => {
+    if (id) fetchEventInfo()
+  }, [id])
+
+  const fetchEventInfo = async () => {
+    try {
+      const res = await fetch(`/api/event-name?eventId=${id}`)
+      const data = await res.json()
+      setEventInfo(data)
+    } catch (e) { console.error(e) }
+  }
+
   useEffect(() => {
     if (loggedIn && id) {
       fetchAll()
@@ -264,12 +277,27 @@ export default function GuestPage() {
   // ── ログイン画面 ──
   if (!loggedIn) return (
     <div style={{ minHeight: '100dvh', background: 'linear-gradient(160deg,#fff0f6,#f3e8ff)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, fontFamily: 'sans-serif' }}>
-      <div style={{ background: 'white', borderRadius: 24, padding: 28, width: '100%', maxWidth: 360, boxShadow: '0 8px 40px rgba(233,30,140,0.12)' }}>
-        <div style={{ textAlign: 'center', marginBottom: 24 }}>
-          <div style={{ fontSize: 48 }}>💍</div>
-          <h2 style={{ margin: '8px 0 4px', color: '#c2185b', fontSize: 22 }}>Wedding Photo</h2>
+      <div style={{ background: 'white', borderRadius: 24, padding: 28, width: '100%', maxWidth: 360, boxShadow: '0 8px 40px rgba(233,30,140,0.12)', overflow: 'hidden' }}>
+
+        {/* カバー写真（主催者が設定している場合のみ表示） */}
+        {eventInfo?.coverPhotoUrl && (
+          <div style={{ margin: '-28px -28px 16px -28px', height: 140, background: `url(${eventInfo.coverPhotoUrl}) center/cover` }} />
+        )}
+
+        <div style={{ textAlign: 'center', marginBottom: 20 }}>
+          <div style={{ fontSize: eventInfo?.coverPhotoUrl ? 32 : 48 }}>💍</div>
+          <h2 style={{ margin: '8px 0 4px', color: '#c2185b', fontSize: eventInfo?.coupleNames ? 24 : 22 }}>
+            {eventInfo?.coupleNames || 'Wedding Photo'}
+          </h2>
           <p style={{ color: '#aaa', fontSize: 13, margin: 0 }}>{tableLabel() || 'アルバム'}</p>
         </div>
+
+        {/* ウェルカムメッセージ（主催者が設定している場合のみ表示） */}
+        {eventInfo?.welcomeMessage && (
+          <div style={{ background: '#faf4ff', border: '1px solid #f0dfff', borderRadius: 12, padding: '12px 14px', marginBottom: 20, fontSize: 13, color: '#7b1fa2', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
+            💌 {eventInfo.welcomeMessage}
+          </div>
+        )}
 
         <input
           placeholder="ニックネームを入力"
