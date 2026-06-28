@@ -19,9 +19,10 @@ export default async function handler(req, res) {
     const auth = getServiceClient()
     const sheets = google.sheets({ version: 'v4', auth })
 
+    // L列（新郎新婦名）まで取得
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.SPREADSHEET_ID,
-      range: 'Events!A2:I',
+      range: 'Events!A2:L',
     })
 
     const rows = response.data.values || []
@@ -33,15 +34,20 @@ export default async function handler(req, res) {
 
     const tables = Number(eventRow[4]) || 4
     const tableNames = eventRow[7] ? JSON.parse(eventRow[7]) : Array.from({ length: tables }, (_, i) => `${i + 1}卓`)
-    // I列（index8）に開始時間を保存
     const startTime = eventRow[8] || null
+    const coverPhotoUrl = eventRow[9] || null
+    const welcomeMessage = eventRow[10] || ''
+    const coupleNames = eventRow[11] || ''
 
     res.json({
       name:       eventRow[2],
       date:       eventRow[3],
       tables,
       tableNames,
-      startTime,  // 例: "17:00"
+      startTime,       // 例: "17:00"
+      coverPhotoUrl,   // カバー写真のURL（未設定ならnull）
+      welcomeMessage,  // ウェルカムメッセージ
+      coupleNames,     // 新郎新婦の名前表示（例: "太郎 & 花子"）
     })
   } catch (e) {
     console.error(e)
