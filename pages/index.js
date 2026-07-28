@@ -1,18 +1,39 @@
 export const dynamic = 'force-dynamic'
 
-import { signIn, useSession } from 'next-auth/react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
-import { useEffect } from 'react'
+import { auth, googleProvider } from '../lib/firebase'
+import { signInWithPopup, onAuthStateChanged } from 'firebase/auth'
 
 export default function Home() {
-  const { data: session, status } = useSession()
   const router = useRouter()
+  const [loading, setLoading] = useState(true)
+  const [signing, setSigning] = useState(false)
 
   useEffect(() => {
-    if (session) router.push('/dashboard')
-  }, [session])
+    const unsub = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        router.push('/dashboard')
+      } else {
+        setLoading(false)
+      }
+    })
+    return () => unsub()
+  }, [])
 
-  if (status === 'loading') return (
+  const handleLogin = async () => {
+    setSigning(true)
+    try {
+      await signInWithPopup(auth, googleProvider)
+      // onAuthStateChanged が dashboard へリダイレクトしてくれる
+    } catch (e) {
+      console.error(e)
+      alert('ログインに失敗しました。もう一度お試しください。')
+      setSigning(false)
+    }
+  }
+
+  if (loading) return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'sans-serif' }}>
       <div style={{ textAlign: 'center', color: '#aaa' }}>
         <div style={{ fontSize: 40 }}>💍</div>
@@ -44,15 +65,16 @@ export default function Home() {
         </div>
 
         <button
-          onClick={() => signIn('google', { callbackUrl: '/dashboard' })}
-          style={{ width: '100%', padding: '14px', borderRadius: 12, border: '1.5px solid #ddd', background: 'white', fontSize: 15, fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 12 }}>
+          onClick={handleLogin}
+          disabled={signing}
+          style={{ width: '100%', padding: '14px', borderRadius: 12, border: '1.5px solid #ddd', background: 'white', fontSize: 15, fontWeight: 'bold', cursor: signing ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 12, opacity: signing ? 0.7 : 1 }}>
           <svg width="20" height="20" viewBox="0 0 48 48">
             <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.2l6.7-6.7C35.7 2.5 30.2 0 24 0 14.8 0 6.9 5.4 3 13.3l7.8 6C12.8 13.3 17.9 9.5 24 9.5z"/>
             <path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.5 5.8c4.4-4.1 6.9-10.1 7.1-17.5z"/>
             <path fill="#FBBC05" d="M10.8 28.7A14.5 14.5 0 0 1 9.5 24c0-1.6.3-3.2.8-4.7L2.5 13.3A24 24 0 0 0 0 24c0 3.8.9 7.4 2.5 10.7l8.3-6z"/>
             <path fill="#34A853" d="M24 48c6.2 0 11.4-2 15.2-5.5l-7.5-5.8c-2 1.4-4.6 2.2-7.7 2.2-6.1 0-11.2-3.8-13.2-9.2l-7.8 6C6.9 42.6 14.8 48 24 48z"/>
           </svg>
-          主催者としてGoogleログイン
+          {signing ? 'ログイン中...' : '主催者としてGoogleログイン'}
         </button>
 
         <p style={{ color: '#bbb', fontSize: 12, margin: '0 0 16px' }}>
