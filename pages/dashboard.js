@@ -1,23 +1,28 @@
 export const dynamic = 'force-dynamic'
 
-import { useSession, signOut } from 'next-auth/react'
+import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/router'
-import { useState, useEffect, useRef } from 'react'
+import { auth, googleProvider } from '../lib/firebase'
+import { onAuthStateChanged, signOut, signInWithPopup, GoogleAuthProvider } from 'firebase/auth'
+import {
+  getFirestore, collection, doc, getDocs, addDoc, updateDoc, deleteDoc,
+  query, where, serverTimestamp, orderBy,
+} from 'firebase/firestore'
+import { db } from '../lib/firebase'
 
 const TABLE_COLORS = ['#9c27b0','#43a047','#fb8c00','#00acc1','#f44336','#3f51b5','#009688','#e91e8c','#795548','#607d8b']
 
-
-
 export default function Dashboard() {
-  const { data: session, status } = useSession()
   const router = useRouter()
-  const [events, setEvents] = useState([])
+  const [user, setUser] = useState(null)
+  const [accessToken, setAccessToken] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [events, setEvents] = useState([])
   const [showCreate, setShowCreate] = useState(false)
   const [creating, setCreating] = useState(false)
   const [confirmDeleteEvent, setConfirmDeleteEvent] = useState(null)
   const [deletingEvent, setDeletingEvent] = useState(null)
-  const [editingEvent, setEditingEvent] = useState(null) // 編集中のイベント
+  const [editingEvent, setEditingEvent] = useState(null)
   const [editTableNames, setEditTableNames] = useState([])
   const [editStartTime, setEditStartTime] = useState('')
   const [editCoverPhotoUrl, setEditCoverPhotoUrl] = useState(null)
@@ -29,19 +34,40 @@ export default function Dashboard() {
   const [customTableNames, setCustomTableNames] = useState(['1卓','2卓','3卓','4卓'])
   const coverFileRef = useRef()
 
+  // Firebase認証状態を監視
   useEffect(() => {
-    if (status === 'unauthenticated') router.push('/')
-    if (status === 'authenticated') fetchEvents()
-  }, [status])
+    const unsub = onAuthStateChanged(auth, async (u) => {
+      if (!u) {
+        router.push('/')
+        return
+      }
+      setUser(u)
+      // Google アクセストークンを取得（Driveアップロード用）
+      try {
+        const result = await signInWithPopup(auth, googleProvider)
+        const credential = GoogleAuthProvider.credentialFromResult(result)
+        if (credential?.accessToken) setAccessToken(credential.accessToken)
+      } catch {
+        // すでにログイン済みの場合はスキップ
+      }
+      await fetchEvents(u.email)
+      setLoading(false)
+    })
+    return () => unsub()
+  }, [])
 
-  const fetchEvents = async () => {
-    setLoading(true)
+  // Firestoreからイベント一覧取得
+  const fetchEvents = async (email) => {
     try {
-      const res = await fetch('/api/events')
-      const data = await res.json()
-      setEvents(data.events || [])
+      const q = query(
+        collection(db, 'events'),
+        where('ownerEmail', '==', email),
+        orderBy('createdAt', 'desc')
+      )
+      const snap = await getDocs(q)
+      const evs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      setEvents(evs)
     } catch (e) { console.error(e) }
-    setLoading(false)
   }
 
   const handleTableCount = (n) => {
@@ -53,6 +79,7 @@ export default function Dashboard() {
     })
   }
 
+  // イベント作成（Firestore + Googleドライブ）
   const createEvent = async () => {
     if (!newEvent.name || !newEvent.date) return
     setCreating(true)
@@ -66,6 +93,8 @@ export default function Dashboard() {
           tables: newEvent.tables,
           tableNames: customTableNames,
           startTime: newEvent.startTime || '',
+          ownerEmail: user.email,
+          idToken: await auth.currentUser.getIdToken(),
         })
       })
       const data = await res.json()
@@ -74,18 +103,24 @@ export default function Dashboard() {
         setShowCreate(false)
         setNewEvent({ name: '', date: '', tables: 4, startTime: '' })
         setCustomTableNames(['1卓','2卓','3卓','4卓'])
+      } else {
+        alert(data.error || '作成に失敗しました')
       }
     } catch (e) { alert('作成に失敗しました') }
     setCreating(false)
   }
 
+  // イベント削除
   const deleteEvent = async (ev) => {
     setDeletingEvent(ev.id)
     try {
       const res = await fetch('/api/delete-event', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ eventId: ev.id })
+        body: JSON.stringify({
+          eventId: ev.id,
+          idToken: await auth.currentUser.getIdToken(),
+        })
       })
       const data = await res.json()
       if (data.success) {
@@ -106,7 +141,7 @@ export default function Dashboard() {
     setEditCoupleNames(ev.coupleNames || '')
   }
 
-  // カバー写真を選んでアップロード
+  // カバー写真アップロード
   const handleCoverFile = async (e) => {
     const file = e.target.files?.[0]
     e.target.value = ''
@@ -125,6 +160,7 @@ export default function Dashboard() {
           eventId: editingEvent.id,
           fileData: base64,
           mimeType: file.type,
+          idToken: await auth.currentUser.getIdToken(),
         })
       })
       const data = await res.json()
@@ -136,52 +172,35 @@ export default function Dashboard() {
       } else {
         alert(data.error || 'カバー写真のアップロードに失敗しました')
       }
-    } catch (e) {
-      alert('カバー写真のアップロードに失敗しました')
-    }
+    } catch (e) { alert('カバー写真のアップロードに失敗しました') }
     setUploadingCover(false)
   }
 
-  // 卓名・時間・カバー写真・ウェルカムメッセージ・新郎新婦名を保存
+  // 編集を保存（Firestore）
   const saveEdit = async () => {
     if (!editingEvent) return
     setSaving(true)
     try {
-      const res = await fetch('/api/events', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          eventId: editingEvent.id,
-          tableNames: editTableNames,
-          startTime: editStartTime,
-          coverPhotoUrl: editCoverPhotoUrl || '',
-          welcomeMessage: editWelcomeMessage,
-          coupleNames: editCoupleNames,
-        })
-      })
-      const data = await res.json()
-      if (data.success) {
-        setEvents(prev => prev.map(ev =>
-          ev.id === editingEvent.id
-            ? {
-                ...ev,
-                tableNames: editTableNames,
-                startTime: editStartTime,
-                coverPhotoUrl: editCoverPhotoUrl || null,
-                welcomeMessage: editWelcomeMessage,
-                coupleNames: editCoupleNames,
-              }
-            : ev
-        ))
-        setEditingEvent(null)
-      } else { alert(data.error || '保存に失敗しました') }
+      const ref = doc(db, 'events', editingEvent.id)
+      const updates = {
+        tableNames:     editTableNames,
+        startTime:      editStartTime,
+        coverPhotoUrl:  editCoverPhotoUrl || '',
+        welcomeMessage: editWelcomeMessage,
+        coupleNames:    editCoupleNames,
+      }
+      await updateDoc(ref, updates)
+      setEvents(prev => prev.map(ev =>
+        ev.id === editingEvent.id ? { ...ev, ...updates } : ev
+      ))
+      setEditingEvent(null)
     } catch (e) { alert('保存に失敗しました') }
     setSaving(false)
   }
 
   const getTableNames = (ev) => ev.tableNames || Array.from({ length: ev.tables }, (_, i) => `${i + 1}卓`)
 
-  if (status === 'loading') return (
+  if (loading) return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'sans-serif' }}>
       <div style={{ textAlign: 'center', color: '#aaa' }}>
         <div style={{ fontSize: 40 }}>💍</div>
@@ -197,9 +216,9 @@ export default function Dashboard() {
       <div style={{ background: 'linear-gradient(90deg,#e91e8c,#9c27b0)', color: 'white', padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <div style={{ fontWeight: 'bold', fontSize: 20 }}>💍 Wedding Photo</div>
-          <div style={{ fontSize: 12, opacity: 0.8, marginTop: 2 }}>👑 {session?.user?.name}</div>
+          <div style={{ fontSize: 12, opacity: 0.8, marginTop: 2 }}>👑 {user?.displayName}</div>
         </div>
-        <button onClick={() => signOut({ callbackUrl: '/' })}
+        <button onClick={() => signOut(auth).then(() => router.push('/'))}
           style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', padding: '7px 14px', borderRadius: 20, cursor: 'pointer', fontSize: 13 }}>
           ログアウト
         </button>
@@ -228,7 +247,6 @@ export default function Dashboard() {
               onChange={e => setNewEvent(p => ({ ...p, name: e.target.value }))}
               style={{ width: '100%', padding: '12px 14px', borderRadius: 12, border: '1.5px solid #eee', fontSize: 15, boxSizing: 'border-box', marginBottom: 10, outline: 'none' }} />
 
-            {/* 日付 */}
             <div style={{ marginBottom: 10 }}>
               <label style={{ fontSize: 13, color: '#666', display: 'block', marginBottom: 4 }}>📅 結婚式の日付</label>
               <input type="date" value={newEvent.date}
@@ -236,7 +254,6 @@ export default function Dashboard() {
                 style={{ width: '100%', padding: '12px 14px', borderRadius: 12, border: '1.5px solid #eee', fontSize: 15, boxSizing: 'border-box', outline: 'none', background: 'white' }} />
             </div>
 
-            {/* 写真投稿開始時間 */}
             <div style={{ marginBottom: 14, background: '#faf4ff', borderRadius: 12, padding: 12 }}>
               <label style={{ fontSize: 13, fontWeight: 'bold', color: '#7b1fa2', display: 'block', marginBottom: 8 }}>
                 🕐 写真投稿の開始時間（任意）
@@ -247,24 +264,13 @@ export default function Dashboard() {
                   style={{ flex: 1, padding: '10px 12px', borderRadius: 10, border: '1.5px solid #e0bfff', fontSize: 16, boxSizing: 'border-box', background: 'white', outline: 'none' }} />
                 {newEvent.startTime && (
                   <button onClick={() => setNewEvent(p => ({ ...p, startTime: '' }))}
-                    style={{ padding: '8px 12px', borderRadius: 10, border: '1.5px solid #eee', background: 'white', color: '#aaa', fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                    style={{ padding: '8px 12px', borderRadius: 10, border: '1.5px solid #eee', background: 'white', color: '#aaa', fontSize: 13, cursor: 'pointer' }}>
                     クリア
                   </button>
                 )}
               </div>
-              {newEvent.startTime && (
-                <div style={{ fontSize: 12, color: '#9c27b0', marginTop: 6 }}>
-                  📅 {newEvent.date || '当日'} の {newEvent.startTime} から写真投稿が可能になります
-                </div>
-              )}
-              {!newEvent.startTime && (
-                <div style={{ fontSize: 11, color: '#aaa', marginTop: 6 }}>
-                  設定しない場合は当日中いつでも投稿できます
-                </div>
-              )}
             </div>
 
-            {/* 卓数 */}
             <div style={{ marginBottom: 14 }}>
               <label style={{ fontSize: 13, color: '#666', display: 'block', marginBottom: 6 }}>卓数: {newEvent.tables}卓</label>
               <input type="range" min="1" max="20" value={newEvent.tables}
@@ -272,7 +278,6 @@ export default function Dashboard() {
                 style={{ width: '100%', accentColor: '#e91e8c' }} />
             </div>
 
-            {/* 卓名カスタマイズ */}
             <div style={{ background: '#faf4ff', borderRadius: 12, padding: 12, marginBottom: 14 }}>
               <div style={{ fontSize: 13, fontWeight: 'bold', color: '#7b1fa2', marginBottom: 10 }}>🌸 卓名をカスタマイズ（任意）</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -289,11 +294,10 @@ export default function Dashboard() {
                   </div>
                 ))}
               </div>
-              <div style={{ fontSize: 11, color: '#aaa', marginTop: 8 }}>例：「新郎側」「新婦側」「家族席」など</div>
             </div>
 
             <div style={{ fontSize: 11, color: '#aaa', marginBottom: 14, background: '#f5f5f5', borderRadius: 10, padding: '8px 12px' }}>
-              💡 カバー写真・ウェルカムメッセージ・新郎新婦名の表示は、作成後に「✏️ 編集」から設定できます
+              💡 カバー写真・ウェルカムメッセージ・新郎新婦名は作成後に「✏️ 編集」から設定できます
             </div>
 
             <div style={{ display: 'flex', gap: 8 }}>
@@ -314,9 +318,7 @@ export default function Dashboard() {
           📋 作成済みのイベント（{events.length}件）
         </div>
 
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: 32, color: '#ccc' }}>読み込み中...</div>
-        ) : events.length === 0 ? (
+        {events.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px 20px', color: '#ccc', background: 'white', borderRadius: 20 }}>
             <div style={{ fontSize: 40, marginBottom: 8 }}>📭</div>
             <div style={{ fontSize: 15 }}>まだイベントがありません</div>
@@ -325,12 +327,9 @@ export default function Dashboard() {
           const tNames = getTableNames(ev)
           return (
             <div key={ev.id} style={{ background: 'white', borderRadius: 20, overflow: 'hidden', marginBottom: 14, boxShadow: '0 4px 20px rgba(0,0,0,0.06)' }}>
-
-              {/* カバー写真（設定されている場合のみ） */}
               {ev.coverPhotoUrl && (
                 <div style={{ width: '100%', height: 110, background: `url(${ev.coverPhotoUrl}) center/cover` }} />
               )}
-
               <div style={{ padding: 18 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                   <div>
@@ -353,7 +352,6 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                {/* 卓名タグ */}
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
                   {tNames.map((n, i) => (
                     <span key={i} style={{ fontSize: 11, background: TABLE_COLORS[i % 10] + '18', color: TABLE_COLORS[i % 10], padding: '3px 10px', borderRadius: 20, fontWeight: 'bold' }}>
@@ -383,7 +381,7 @@ export default function Dashboard() {
         })}
       </div>
 
-      {/* ── 編集モーダル ── */}
+      {/* 編集モーダル */}
       {editingEvent && (
         <div onClick={() => setEditingEvent(null)}
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 400, display: 'flex', alignItems: 'flex-end' }}>
@@ -395,16 +393,9 @@ export default function Dashboard() {
 
             {/* カバー写真 */}
             <div style={{ background: '#faf4ff', borderRadius: 12, padding: 14, marginBottom: 16 }}>
-              <label style={{ fontSize: 13, fontWeight: 'bold', color: '#7b1fa2', display: 'block', marginBottom: 8 }}>
-                🖼️ カバー写真
-              </label>
+              <label style={{ fontSize: 13, fontWeight: 'bold', color: '#7b1fa2', display: 'block', marginBottom: 8 }}>🖼️ カバー写真</label>
               <div onClick={() => coverFileRef.current?.click()}
-                style={{
-                  width: '100%', height: 120, borderRadius: 10, marginBottom: 8, cursor: 'pointer',
-                  background: editCoverPhotoUrl ? `url(${editCoverPhotoUrl}) center/cover` : '#f0f0f0',
-                  border: '2px dashed #e0bfff', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  position: 'relative', overflow: 'hidden',
-                }}>
+                style={{ width: '100%', height: 120, borderRadius: 10, marginBottom: 8, cursor: 'pointer', background: editCoverPhotoUrl ? `url(${editCoverPhotoUrl}) center/cover` : '#f0f0f0', border: '2px dashed #e0bfff', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}>
                 {!editCoverPhotoUrl && !uploadingCover && (
                   <div style={{ textAlign: 'center', color: '#bbb' }}>
                     <div style={{ fontSize: 24 }}>📷</div>
@@ -430,55 +421,40 @@ export default function Dashboard() {
                   </button>
                 )}
               </div>
-              <div style={{ fontSize: 11, color: '#aaa', marginTop: 6 }}>ゲストのニックネーム入力画面のヘッダーに表示されます</div>
             </div>
 
-            {/* 新郎新婦の名前表示 */}
+            {/* 新郎新婦名 */}
             <div style={{ background: '#faf4ff', borderRadius: 12, padding: 14, marginBottom: 16 }}>
-              <label style={{ fontSize: 13, fontWeight: 'bold', color: '#7b1fa2', display: 'block', marginBottom: 8 }}>
-                💑 新郎新婦の名前表示
-              </label>
+              <label style={{ fontSize: 13, fontWeight: 'bold', color: '#7b1fa2', display: 'block', marginBottom: 8 }}>💑 新郎新婦の名前表示</label>
               <input value={editCoupleNames} onChange={e => setEditCoupleNames(e.target.value)}
                 placeholder="例：太郎 & 花子"
                 style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1.5px solid #e0bfff', fontSize: 15, boxSizing: 'border-box', outline: 'none', background: 'white' }} />
-              <div style={{ fontSize: 11, color: '#aaa', marginTop: 6 }}>ゲスト画面に大きく表示されます（イベント名とは別に設定できます）</div>
             </div>
 
             {/* ウェルカムメッセージ */}
             <div style={{ background: '#faf4ff', borderRadius: 12, padding: 14, marginBottom: 16 }}>
-              <label style={{ fontSize: 13, fontWeight: 'bold', color: '#7b1fa2', display: 'block', marginBottom: 8 }}>
-                💌 ウェルカムメッセージ
-              </label>
+              <label style={{ fontSize: 13, fontWeight: 'bold', color: '#7b1fa2', display: 'block', marginBottom: 8 }}>💌 ウェルカムメッセージ</label>
               <textarea value={editWelcomeMessage} onChange={e => setEditWelcomeMessage(e.target.value)} rows={3}
-                placeholder="例：本日は私たちの結婚式にお越しいただきありがとうございます。素敵な写真をたくさん残してください！"
+                placeholder="例：本日は私たちの結婚式にお越しいただきありがとうございます。"
                 style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1.5px solid #e0bfff', fontSize: 14, boxSizing: 'border-box', outline: 'none', resize: 'none', background: 'white' }} />
-              <div style={{ fontSize: 11, color: '#aaa', marginTop: 6 }}>ゲストのニックネーム入力画面に表示されます</div>
             </div>
 
-            {/* 投稿開始時間の編集 */}
+            {/* 投稿開始時間 */}
             <div style={{ background: '#faf4ff', borderRadius: 12, padding: 14, marginBottom: 16 }}>
-              <label style={{ fontSize: 13, fontWeight: 'bold', color: '#7b1fa2', display: 'block', marginBottom: 8 }}>
-                🕐 写真投稿の開始時間
-              </label>
+              <label style={{ fontSize: 13, fontWeight: 'bold', color: '#7b1fa2', display: 'block', marginBottom: 8 }}>🕐 写真投稿の開始時間</label>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <input type="time" value={editStartTime}
-                  onChange={e => setEditStartTime(e.target.value)}
+                <input type="time" value={editStartTime} onChange={e => setEditStartTime(e.target.value)}
                   style={{ flex: 1, padding: '10px 12px', borderRadius: 10, border: '1.5px solid #e0bfff', fontSize: 16, boxSizing: 'border-box', background: 'white', outline: 'none' }} />
                 {editStartTime && (
                   <button onClick={() => setEditStartTime('')}
-                    style={{ padding: '8px 12px', borderRadius: 10, border: '1.5px solid #eee', background: 'white', color: '#aaa', fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                    style={{ padding: '8px 12px', borderRadius: 10, border: '1.5px solid #eee', background: 'white', color: '#aaa', fontSize: 13, cursor: 'pointer' }}>
                     クリア
                   </button>
                 )}
               </div>
-              {editStartTime && (
-                <div style={{ fontSize: 12, color: '#9c27b0', marginTop: 6 }}>
-                  📅 {editingEvent.date} の {editStartTime} から写真投稿が可能になります
-                </div>
-              )}
             </div>
 
-            {/* 卓名の編集 */}
+            {/* 卓名 */}
             <div style={{ background: '#faf4ff', borderRadius: 12, padding: 14, marginBottom: 16 }}>
               <div style={{ fontSize: 13, fontWeight: 'bold', color: '#7b1fa2', marginBottom: 10 }}>🌸 卓名を変更</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -510,7 +486,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* イベント削除確認 */}
+      {/* 削除確認 */}
       {confirmDeleteEvent && (
         <div onClick={() => setConfirmDeleteEvent(null)}
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
