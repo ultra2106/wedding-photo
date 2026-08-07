@@ -1,56 +1,34 @@
-import { google } from 'googleapis'
-
-function getServiceClient() {
-  const auth = new google.auth.GoogleAuth({
-    credentials: {
-      client_email: process.env.GOOGLE_SERVICE_EMAIL,
-      private_key: process.env.GOOGLE_SERVICE_KEY?.replace(/\\n/g, '\n'),
-    },
-    scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
-  })
-  return auth
-}
+import { adminDb } from '../../lib/firebase-admin'
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).end()
 
   try {
     const { eventId } = req.query
-    const auth = getServiceClient()
-    const sheets = google.sheets({ version: 'v4', auth })
+    if (!eventId) return res.status(400).json({ error: 'eventIdが必要です' })
 
-    // L列（新郎新婦名）まで取得
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.SPREADSHEET_ID,
-      range: 'Events!A2:L',
-    })
+    const snap = await adminDb.collection('events').doc(eventId).get()
 
-    const rows = response.data.values || []
-    const eventRow = rows.find(row => row[1] === eventId)
-
-    if (!eventRow) {
+    if (!snap.exists) {
       return res.status(404).json({ error: 'イベントが見つかりません' })
     }
 
-    const tables = Number(eventRow[4]) || 4
-    const tableNames = eventRow[7] ? JSON.parse(eventRow[7]) : Array.from({ length: tables }, (_, i) => `${i + 1}卓`)
-    const startTime = eventRow[8] || null
-    const coverPhotoUrl = eventRow[9] || null
-    const welcomeMessage = eventRow[10] || ''
-    const coupleNames = eventRow[11] || ''
+    const data = snap.data()
 
-    res.json({
-      name:       eventRow[2],
-      date:       eventRow[3],
-      tables,
-      tableNames,
-      startTime,       // 例: "17:00"
-      coverPhotoUrl,   // カバー写真のURL（未設定ならnull）
-      welcomeMessage,  // ウェルカムメッセージ
-      coupleNames,     // 新郎新婦の名前表示（例: "太郎 & 花子"）
+    return res.json({
+      name:           data.name,
+      date:           data.date,
+      tables:         data.tables,
+      tableNames:     data.tableNames || Array.from({ length: data.tables }, (_, i) => `${i + 1}卓`),
+      startTime:      data.startTime || null,
+      coverPhotoUrl:  data.coverPhotoUrl || null,
+      welcomeMessage: data.welcomeMessage || '',
+      coupleNames:    data.coupleNames || '',
+      folderId:       data.folderId || null,
     })
+
   } catch (e) {
     console.error(e)
-    res.status(500).json({ error: 'イベント情報の取得に失敗しました' })
+    return res.status(500).json({ error: 'イベント情報の取得に失敗しました' })
   }
 }
