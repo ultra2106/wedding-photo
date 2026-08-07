@@ -2,8 +2,9 @@ export const dynamic = 'force-dynamic'
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
-import { auth, googleProvider } from '../lib/firebase'
-import { signInWithPopup, onAuthStateChanged } from 'firebase/auth'
+import { auth, googleProvider, db } from '../lib/firebase'
+import { signInWithPopup, onAuthStateChanged, GoogleAuthProvider } from 'firebase/auth'
+import { doc, setDoc } from 'firebase/firestore'
 
 export default function Home() {
   const router = useRouter()
@@ -24,7 +25,17 @@ export default function Home() {
   const handleLogin = async () => {
     setSigning(true)
     try {
-      await signInWithPopup(auth, googleProvider)
+      const result = await signInWithPopup(auth, googleProvider)
+      const credential = GoogleAuthProvider.credentialFromResult(result)
+
+      // Google アクセストークンを Firestore に保存（Drive操作で使用）
+      if (credential?.accessToken) {
+        await setDoc(doc(db, 'users', result.user.uid), {
+          accessToken: credential.accessToken,
+          email: result.user.email,
+          updatedAt: new Date().toISOString(),
+        }, { merge: true })
+      }
       // onAuthStateChanged が dashboard へリダイレクトしてくれる
     } catch (e) {
       console.error(e)
@@ -64,9 +75,7 @@ export default function Home() {
           ))}
         </div>
 
-        <button
-          onClick={handleLogin}
-          disabled={signing}
+        <button onClick={handleLogin} disabled={signing}
           style={{ width: '100%', padding: '14px', borderRadius: 12, border: '1.5px solid #ddd', background: 'white', fontSize: 15, fontWeight: 'bold', cursor: signing ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 12, opacity: signing ? 0.7 : 1 }}>
           <svg width="20" height="20" viewBox="0 0 48 48">
             <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.2l6.7-6.7C35.7 2.5 30.2 0 24 0 14.8 0 6.9 5.4 3 13.3l7.8 6C12.8 13.3 17.9 9.5 24 9.5z"/>
@@ -86,7 +95,6 @@ export default function Home() {
           　｜　
           <a href="/how-to-use" style={{ color: '#bbb', textDecoration: 'underline' }}>使い方</a>
         </p>
-
       </div>
     </div>
   )
