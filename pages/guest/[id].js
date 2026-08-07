@@ -45,13 +45,10 @@ export default function GuestPage() {
 
   useEffect(() => {
     const stored = localStorage.getItem('wedding_photo_nick')
-    if (stored) {
-      setNick(stored)
-      setSavedNick(stored)
-    }
+    if (stored) { setNick(stored); setSavedNick(stored) }
   }, [])
 
-  // ログイン前でもカバー写真・ウェルカムメッセージ・新郎新婦名を表示するため先に取得
+  // ログイン前でもイベント情報を取得（カバー写真・ウェルカムメッセージ表示用）
   useEffect(() => {
     if (id) fetchEventInfo()
   }, [id])
@@ -104,10 +101,8 @@ export default function GuestPage() {
     const today = now.toISOString().split('T')[0]
     if (today !== eventInfo.date) return false
     if (eventInfo.startTime) {
-      const [startHour, startMin] = eventInfo.startTime.split(':').map(Number)
-      const startMinutes = startHour * 60 + startMin
-      const nowMinutes = now.getHours() * 60 + now.getMinutes()
-      return nowMinutes >= startMinutes
+      const [h, m] = eventInfo.startTime.split(':').map(Number)
+      return now.getHours() * 60 + now.getMinutes() >= h * 60 + m
     }
     return true
   }
@@ -279,20 +274,20 @@ export default function GuestPage() {
     <div style={{ minHeight: '100dvh', background: 'linear-gradient(160deg,#fff0f6,#f3e8ff)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, fontFamily: 'sans-serif' }}>
       <div style={{ background: 'white', borderRadius: 24, padding: 28, width: '100%', maxWidth: 360, boxShadow: '0 8px 40px rgba(233,30,140,0.12)', overflow: 'hidden' }}>
 
-        {/* カバー写真（主催者が設定している場合のみ表示） */}
+        {/* カバー写真 */}
         {eventInfo?.coverPhotoUrl && (
           <div style={{ margin: '-28px -28px 16px -28px', height: 140, background: `url(${eventInfo.coverPhotoUrl}) center/cover` }} />
         )}
 
         <div style={{ textAlign: 'center', marginBottom: 20 }}>
           <div style={{ fontSize: eventInfo?.coverPhotoUrl ? 32 : 48 }}>💍</div>
-          <h2 style={{ margin: '8px 0 4px', color: '#c2185b', fontSize: eventInfo?.coupleNames ? 24 : 22 }}>
+          <h2 style={{ margin: '8px 0 4px', color: '#c2185b', fontSize: 22 }}>
             {eventInfo?.coupleNames || 'Wedding Photo'}
           </h2>
           <p style={{ color: '#aaa', fontSize: 13, margin: 0 }}>{tableLabel() || 'アルバム'}</p>
         </div>
 
-        {/* ウェルカムメッセージ（主催者が設定している場合のみ表示） */}
+        {/* ウェルカムメッセージ */}
         {eventInfo?.welcomeMessage && (
           <div style={{ background: '#faf4ff', border: '1px solid #f0dfff', borderRadius: 12, padding: '12px 14px', marginBottom: 20, fontSize: 13, color: '#7b1fa2', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
             💌 {eventInfo.welcomeMessage}
@@ -325,9 +320,7 @@ export default function GuestPage() {
           入場する 🎊
         </button>
 
-        {/* 使い方を見るボタン */}
-        <button
-          onClick={() => router.push(`/how-to-use?role=guest`)}
+        <button onClick={() => router.push('/how-to-use?role=guest')}
           style={{ width: '100%', padding: '11px 16px', borderRadius: 12, border: '1.5px solid #fce4ec', background: 'white', color: '#e91e8c', fontWeight: 'bold', fontSize: 14, cursor: 'pointer', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
           📖 使い方を見る
         </button>
@@ -403,7 +396,7 @@ export default function GuestPage() {
 
           {photoFilter === 'best' && bestCount === 0 && (
             <div style={{ margin: '8px 12px 0', background: '#fff8e1', borderRadius: 12, padding: '10px 14px', fontSize: 13, color: '#795548', textAlign: 'center' }}>
-              ⭐ まだベスト写真が選ばれていません。素敵な写真を投稿しよう！
+              ⭐ まだベスト写真が選ばれていません
             </div>
           )}
 
@@ -442,11 +435,7 @@ export default function GuestPage() {
                         )
                       })}
                     </div>
-                    {total > 0 && (
-                      <div style={{ fontSize: 11, color: '#e91e8c', fontWeight: 'bold', marginBottom: 4, textAlign: 'center' }}>
-                        合計 {total} リアクション
-                      </div>
-                    )}
+                    {total > 0 && <div style={{ fontSize: 11, color: '#e91e8c', fontWeight: 'bold', marginBottom: 4, textAlign: 'center' }}>合計 {total} リアクション</div>}
                     <button onClick={() => downloadPhoto(p)} disabled={downloading === p.id}
                       style={{ width: '100%', padding: '5px', borderRadius: 8, border: '1px solid #e91e8c', background: 'white', color: '#e91e8c', fontSize: 11, cursor: 'pointer', fontWeight: 'bold' }}>
                       {downloading === p.id ? '⏳ 保存中...' : '⬇️ 保存'}
@@ -492,20 +481,15 @@ export default function GuestPage() {
         </div>
       )}
 
+      {/* Lightbox */}
       {lightbox && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.95)', zIndex: 200, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 16 }}
           onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
           <div style={{ position: 'absolute', top: '50%', left: 12, transform: 'translateY(-50%)' }}>
-            {lightboxIndex > 0 && (
-              <button onClick={() => setLightboxIndex(i => i - 1)}
-                style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', width: 40, height: 40, borderRadius: '50%', fontSize: 18, cursor: 'pointer' }}>‹</button>
-            )}
+            {lightboxIndex > 0 && <button onClick={() => setLightboxIndex(i => i - 1)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', width: 40, height: 40, borderRadius: '50%', fontSize: 18, cursor: 'pointer' }}>‹</button>}
           </div>
           <div style={{ position: 'absolute', top: '50%', right: 12, transform: 'translateY(-50%)' }}>
-            {lightboxIndex < visiblePhotos.length - 1 && (
-              <button onClick={() => setLightboxIndex(i => i + 1)}
-                style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', width: 40, height: 40, borderRadius: '50%', fontSize: 18, cursor: 'pointer' }}>›</button>
-            )}
+            {lightboxIndex < visiblePhotos.length - 1 && <button onClick={() => setLightboxIndex(i => i + 1)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', width: 40, height: 40, borderRadius: '50%', fontSize: 18, cursor: 'pointer' }}>›</button>}
           </div>
           <img src={lightbox.url} style={{ maxWidth: '100%', maxHeight: '60dvh', borderRadius: 12, objectFit: 'contain' }} />
           <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, marginTop: 6 }}>{lightboxIndex + 1} / {visiblePhotos.length}</div>
@@ -522,10 +506,6 @@ export default function GuestPage() {
                 )
               })}
             </div>
-            {(() => {
-              const total = REACTIONS.reduce((sum, r) => sum + (reactions[lightbox?.id]?.[r]?.length || 0), 0)
-              return total > 0 ? <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>合計 {total} リアクション</div> : null
-            })()}
           </div>
           <div style={{ color: 'white', marginTop: 8, textAlign: 'center' }}>
             <div style={{ fontSize: 15, fontWeight: 'bold' }}>{lightbox.caption}</div>
@@ -550,6 +530,7 @@ export default function GuestPage() {
         </div>
       )}
 
+      {/* 削除確認 */}
       {confirmDelete && (
         <div onClick={() => setConfirmDelete(null)}
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
@@ -561,9 +542,7 @@ export default function GuestPage() {
             <img src={confirmDelete.url} style={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover', borderRadius: 10, marginBottom: 16 }} />
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={() => setConfirmDelete(null)}
-                style={{ flex: 1, padding: 12, borderRadius: 10, border: '1.5px solid #eee', background: 'white', fontSize: 14, cursor: 'pointer' }}>
-                キャンセル
-              </button>
+                style={{ flex: 1, padding: 12, borderRadius: 10, border: '1.5px solid #eee', background: 'white', fontSize: 14, cursor: 'pointer' }}>キャンセル</button>
               <button onClick={() => deletePhoto(confirmDelete)} disabled={deleting === confirmDelete?.id}
                 style={{ flex: 1, padding: 12, borderRadius: 10, border: 'none', background: '#e53935', color: 'white', fontWeight: 'bold', fontSize: 14, cursor: 'pointer' }}>
                 {deleting === confirmDelete?.id ? '削除中...' : '削除する'}
@@ -573,6 +552,7 @@ export default function GuestPage() {
         </div>
       )}
 
+      {/* アップロードモーダル */}
       {uploadOpen && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 300, display: 'flex', alignItems: 'flex-end' }} onClick={e => e.target === e.currentTarget && setUploadOpen(false)}>
           <div style={{ background: 'white', borderRadius: '24px 24px 0 0', padding: '20px 18px 36px', width: '100%', boxSizing: 'border-box' }}>
