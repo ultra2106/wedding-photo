@@ -1,36 +1,15 @@
+import { adminAuth, adminDb } from '../../lib/firebase-admin'
 import { google } from 'googleapis'
-import crypto from 'crypto'
 
-function decrypt(text) {
-  const secret = process.env.NEXTAUTH_SECRET.padEnd(32, '0').slice(0, 32)
-  const [ivHex, encryptedHex] = text.split(':')
-  const iv = Buffer.from(ivHex, 'hex')
-  const encrypted = Buffer.from(encryptedHex, 'hex')
-  const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(secret), iv)
-  let decrypted = decipher.update(encrypted)
-  decrypted = Buffer.concat([decrypted, decipher.final()])
-  return decrypted.toString()
-}
-
-function getServiceClient() {
-  const auth = new google.auth.GoogleAuth({
-    credentials: {
-      client_email: process.env.GOOGLE_SERVICE_EMAIL,
-      private_key: process.env.GOOGLE_SERVICE_KEY?.replace(/\\n/g, '\n'),
-    },
-    scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
-  })
-  return auth
-}
-
-async function getDriveClientFromRefreshToken(encryptedRefreshToken) {
-  const refreshToken = decrypt(encryptedRefreshToken)
+async function getDriveClient(uid) {
+  const userSnap = await adminDb.collection('users').doc(uid).get()
+  const accessToken = userSnap.data()?.accessToken
+  if (!accessToken) throw new Error('アクセストークンが見つかりません。再ログインしてください。')
   const auth = new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET
   )
-  auth.setCredentials({ refresh_token: refreshToken })
-  await auth.getAccessToken()
+  auth.setCredentials({ access_token: accessToken })
   return google.drive({ version: 'v3', auth })
 }
 
@@ -38,30 +17,28 @@ export default async function handler(req, res) {
   if (req.method !== 'DELETE') return res.status(405).end()
 
   try {
-    const { fileId, eventId, nick, isHost } = req.body
+    const { fileId, eventId, nick, isHost, idToken } = req.body
+    if (!fileId || !eventId) return res.status(400).json({ error: '必須パラメータが不足しています' })
 
-    if (!fileId || !eventId) {
-      return res.status(400).json({ error: '必須パラメータが不足しています' })
+    // ホストの場合は認証必須
+    let uid = null
+    if (isHost) {
+      if (!idToken) return res.status(401).json({ error: '認証が必要です' })
+      const decoded = await adminAuth.verifyIdToken(idToken)
+      uid = decoded.uid
+    } else {
+      // ゲストの場合はイベントのオーナーのUIDを取得
+      const eventSnap = await adminDb.collection('events').doc(eventId).get()
+      if (!eventSnap.exists) return res.status(404).json({ error: 'イベントが見つかりません' })
+      const ownerEmail = eventSnap.data().ownerEmail
+      // ownerEmailからuidを取得
+      const ownerUser = await adminAuth.getUserByEmail(ownerEmail)
+      uid = ownerUser.uid
     }
 
-    const serviceAuth = getServiceClient()
-    const sheets = google.sheets({ version: 'v4', auth: serviceAuth })
+    const drive = await getDriveClient(uid)
 
-    const sheetRes = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.SPREADSHEET_ID,
-      range: 'Events!A2:G',
-    })
-
-    const rows = sheetRes.data.values || []
-    const eventRow = rows.find(row => row[1] === eventId)
-
-    if (!eventRow) {
-      return res.status(404).json({ error: 'イベントが見つかりません' })
-    }
-
-    const encryptedRefreshToken = eventRow[6]
-    const drive = await getDriveClientFromRefreshToken(encryptedRefreshToken)
-
+    // ゲストの場合は自分の写真かチェック
     if (!isHost) {
       const file = await drive.files.get({
         fileId,
@@ -78,10 +55,10 @@ export default async function handler(req, res) {
       requestBody: { trashed: true },
     })
 
-    res.json({ success: true })
+    return res.json({ success: true })
 
-  } catch (error) {
-    console.error('Delete error:', error)
-    res.status(500).json({ error: '削除に失敗しました', detail: error.message })
+  } catch (e) {
+    console.error('Delete photo error:', e)
+    return res.status(500).json({ error: '削除に失敗しました', detail: e.message })
   }
 }
