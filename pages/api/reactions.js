@@ -1,51 +1,34 @@
-import { google } from 'googleapis'
-
-function getServiceClient() {
-  const auth = new google.auth.GoogleAuth({
-    credentials: {
-      client_email: process.env.GOOGLE_SERVICE_EMAIL,
-      private_key: process.env.GOOGLE_SERVICE_KEY?.replace(/\\n/g, '\n'),
-    },
-    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-  })
-  return auth
-}
+import { adminDb } from '../../lib/firebase-admin'
 
 export default async function handler(req, res) {
-  const auth = getServiceClient()
-  const sheets = google.sheets({ version: 'v4', auth })
-  const SHEET = process.env.SPREADSHEET_ID
-
-  // リアクション一覧取得
+  // ── リアクション一覧取得 ──────────────────────────────────
   if (req.method === 'GET') {
     try {
       const { eventId } = req.query
-      const response = await sheets.spreadsheets.values.get({
-        spreadsheetId: SHEET,
-        range: 'Reactions!A2:E',
-      })
-      const rows = response.data.values || []
+      if (!eventId) return res.status(400).json({ error: 'eventIdが必要です' })
 
+      const snap = await adminDb
+        .collection('reactions')
+        .where('eventId', '==', eventId)
+        .get()
+
+      // { photoId: { '❤️': ['nick1', 'nick2'], ... } } の形に変換
       const reactMap = {}
-      rows
-        .filter(row => row[0] === eventId)
-        .forEach(row => {
-          const photoId = row[1]
-          const nick = row[2]
-          const reaction = row[3]
-          if (!reactMap[photoId]) reactMap[photoId] = {}
-          if (!reactMap[photoId][reaction]) reactMap[photoId][reaction] = []
-          reactMap[photoId][reaction].push(nick)
-        })
+      snap.docs.forEach(d => {
+        const { photoId, nick, reaction } = d.data()
+        if (!reactMap[photoId]) reactMap[photoId] = {}
+        if (!reactMap[photoId][reaction]) reactMap[photoId][reaction] = []
+        reactMap[photoId][reaction].push(nick)
+      })
 
-      res.json({ reactions: reactMap })
+      return res.json({ reactions: reactMap })
     } catch (e) {
       console.error(e)
-      res.status(500).json({ error: 'リアクションの取得に失敗しました', reactions: {} })
+      return res.status(500).json({ error: 'リアクションの取得に失敗しました', reactions: {} })
     }
   }
 
-  // リアクション投稿・取り消し
+  // ── リアクション投稿・取り消し ────────────────────────────
   if (req.method === 'POST') {
     try {
       const { eventId, photoId, nick, reaction } = req.body
@@ -53,37 +36,35 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: '必須項目が不足しています' })
       }
 
-      const response = await sheets.spreadsheets.values.get({
-        spreadsheetId: SHEET,
-        range: 'Reactions!A2:E',
-      })
-      const rows = response.data.values || []
+      // 同じリアクションが既にあるか確認
+      const existing = await adminDb
+        .collection('reactions')
+        .where('eventId',  '==', eventId)
+        .where('photoId',  '==', photoId)
+        .where('nick',     '==', nick)
+        .where('reaction', '==', reaction)
+        .get()
 
-      const existingIndex = rows.findIndex(
-        row => row[0] === eventId && row[1] === photoId && row[2] === nick && row[3] === reaction
-      )
-
-      if (existingIndex !== -1) {
-        const actualRow = existingIndex + 2
-        await sheets.spreadsheets.values.clear({
-          spreadsheetId: SHEET,
-          range: `Reactions!A${actualRow}:E${actualRow}`,
-        })
-        res.json({ success: true, action: 'removed' })
+      if (!existing.empty) {
+        // 既にある → 取り消し
+        await existing.docs[0].ref.delete()
+        return res.json({ success: true, action: 'removed' })
       } else {
-        await sheets.spreadsheets.values.append({
-          spreadsheetId: SHEET,
-          range: 'Reactions!A:E',
-          valueInputOption: 'RAW',
-          requestBody: {
-            values: [[eventId, photoId, nick, reaction, new Date().toLocaleString('ja-JP')]]
-          }
+        // ない → 追加
+        await adminDb.collection('reactions').add({
+          eventId,
+          photoId,
+          nick,
+          reaction,
+          createdAt: new Date().toISOString(),
         })
-        res.json({ success: true, action: 'added' })
+        return res.json({ success: true, action: 'added' })
       }
     } catch (e) {
       console.error(e)
-      res.status(500).json({ error: 'リアクションの投稿に失敗しました' })
+      return res.status(500).json({ error: 'リアクションの投稿に失敗しました' })
     }
   }
+
+  return res.status(405).end()
 }
