@@ -1,37 +1,16 @@
+import { adminDb } from '../../lib/firebase-admin'
 import { google } from 'googleapis'
 import { Readable } from 'stream'
-import crypto from 'crypto'
 
-function decrypt(text) {
-  const secret = process.env.NEXTAUTH_SECRET.padEnd(32, '0').slice(0, 32)
-  const [ivHex, encryptedHex] = text.split(':')
-  const iv = Buffer.from(ivHex, 'hex')
-  const encrypted = Buffer.from(encryptedHex, 'hex')
-  const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(secret), iv)
-  let decrypted = decipher.update(encrypted)
-  decrypted = Buffer.concat([decrypted, decipher.final()])
-  return decrypted.toString()
-}
-
-function getServiceClient() {
-  const auth = new google.auth.GoogleAuth({
-    credentials: {
-      client_email: process.env.GOOGLE_SERVICE_EMAIL,
-      private_key: process.env.GOOGLE_SERVICE_KEY?.replace(/\\n/g, '\n'),
-    },
-    scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
-  })
-  return auth
-}
-
-async function getDriveClientFromRefreshToken(encryptedRefreshToken) {
-  const refreshToken = decrypt(encryptedRefreshToken)
+async function getDriveClient(uid) {
+  const userSnap = await adminDb.collection('users').doc(uid).get()
+  const accessToken = userSnap.data()?.accessToken
+  if (!accessToken) throw new Error('アクセストークンが見つかりません。再ログインしてください。')
   const auth = new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET
   )
-  auth.setCredentials({ refresh_token: refreshToken })
-  await auth.getAccessToken()
+  auth.setCredentials({ access_token: accessToken })
   return google.drive({ version: 'v3', auth })
 }
 
@@ -40,31 +19,20 @@ export default async function handler(req, res) {
 
   try {
     const { eventId, fileName, fileData, mimeType, group, caption, visibility, nick } = req.body
+    if (!eventId || !fileData) return res.status(400).json({ error: '必須パラメータが不足しています' })
 
-    const serviceAuth = getServiceClient()
-    const sheets = google.sheets({ version: 'v4', auth: serviceAuth })
+    // Firestoreからイベント情報取得
+    const eventSnap = await adminDb.collection('events').doc(eventId).get()
+    if (!eventSnap.exists) return res.status(404).json({ error: 'イベントが見つかりません' })
 
-    // I列まで取得
-    const sheetRes = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.SPREADSHEET_ID,
-      range: 'Events!A2:I',
-    })
+    const eventData = eventSnap.data()
+    const rootFolderId = eventData.folderId
+    const ownerEmail = eventData.ownerEmail
 
-    const rows = sheetRes.data.values || []
-    const eventRow = rows.find(row => row[1] === eventId)
-
-    if (!eventRow) {
-      return res.status(404).json({ error: 'イベントが見つかりません' })
-    }
-
-    const rootFolderId = eventRow[5]
-    const encryptedRefreshToken = eventRow[6]
-
-    if (!encryptedRefreshToken) {
-      return res.status(400).json({ error: 'トークンが見つかりません。主催者に再ログインを依頼してください。' })
-    }
-
-    const drive = await getDriveClientFromRefreshToken(encryptedRefreshToken)
+    // オーナーのuidを取得してDriveクライアントを取得
+    const { adminAuth } = await import('../../lib/firebase-admin')
+    const ownerUser = await adminAuth.getUserByEmail(ownerEmail)
+    const drive = await getDriveClient(ownerUser.uid)
 
     // 保存先フォルダを決定
     let folderKeyword = ''
@@ -72,10 +40,9 @@ export default async function handler(req, res) {
       folderKeyword = '全体公開'
     } else if (group === 'afterparty') {
       folderKeyword = '二次会'
-    } else if (group === 'host') {
+    } else if (visibility === 'host') {
       folderKeyword = '主催者のみ'
     } else {
-      // カスタム卓名に対応するためフォルダを番号で検索
       const tableNum = group.replace('table', '')
       folderKeyword = `${tableNum}卓`
     }
@@ -117,11 +84,11 @@ export default async function handler(req, res) {
       requestBody: { role: 'reader', type: 'anyone' }
     })
 
-    res.json({ success: true, file: response.data })
+    return res.json({ success: true, file: response.data })
 
-  } catch (error) {
-    console.error('Upload error:', error)
-    res.status(500).json({ error: 'アップロードに失敗しました', detail: error.message })
+  } catch (e) {
+    console.error('Upload error:', e)
+    return res.status(500).json({ error: 'アップロードに失敗しました', detail: e.message })
   }
 }
 
